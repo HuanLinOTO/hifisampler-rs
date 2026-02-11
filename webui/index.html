@@ -25,463 +25,321 @@
             background: var(--bg);
             color: var(--text);
             min-height: 100vh;
+            overflow-x: hidden;
         }
+        /* ── Header ── */
         .header {
-            padding: 20px 32px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            gap: 16px;
+            padding: 14px 24px; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
         }
-        .header h1 { font-size: 20px; font-weight: 600; }
-        .header .status {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 14px;
-            color: var(--text-dim);
-        }
-        .header .status .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--green);
-            animation: pulse 2s infinite;
-        }
-        .header .status .dot.offline { background: var(--red); animation: none; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .header h1 { font-size: 18px; font-weight: 600; white-space: nowrap; }
+        .header .status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); }
+        .header .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+        .header .status .dot.off { background: var(--red); animation: none; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
         .header .spacer { flex: 1; }
-        .header .version { font-size: 12px; color: var(--text-dim); }
-
-        .main { padding: 24px 32px; display: flex; flex-direction: column; gap: 24px; }
-
-        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
-        .card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
-        }
-        .card .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
-        .card .value { font-size: 28px; font-weight: 700; margin-top: 8px; font-variant-numeric: tabular-nums; }
-        .card .unit { font-size: 14px; color: var(--text-dim); font-weight: 400; }
-
-        .section {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 24px;
-        }
-        .section h2 {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .bar-chart {
-            display: flex;
-            align-items: flex-end;
-            gap: 4px;
-            height: 120px;
-            padding-top: 8px;
-        }
-        .bar-chart .bar {
-            flex: 1;
-            min-width: 4px;
-            background: var(--accent);
-            border-radius: 2px 2px 0 0;
-            transition: height 0.3s;
-            position: relative;
-        }
-        .bar-chart .bar:hover { background: var(--accent-hover); }
-        .bar-chart .bar .tooltip {
-            display: none;
-            position: absolute;
-            bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--surface2);
-            border: 1px solid var(--border);
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            white-space: nowrap;
-            z-index: 10;
-        }
-        .bar-chart .bar:hover .tooltip { display: block; }
-
-        .percentiles {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 12px;
-            margin-top: 16px;
-        }
-        .percentile-item {
-            text-align: center;
-            padding: 12px;
-            background: var(--surface2);
-            border-radius: 8px;
-        }
-        .percentile-item .label { font-size: 11px; color: var(--text-dim); }
-        .percentile-item .value { font-size: 18px; font-weight: 600; margin-top: 4px; }
-
-        .breakdown {
-            display: flex;
-            gap: 8px;
-            margin-top: 16px;
-            flex-wrap: wrap;
-        }
-        .breakdown .seg {
-            height: 24px;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 11px;
-            font-weight: 500;
-            min-width: 60px;
-            transition: flex 0.3s;
-        }
-        .breakdown .seg.feat { background: #4f46e5; }
-        .breakdown .seg.synth { background: #0891b2; }
-        .breakdown .seg.post { background: #059669; }
-
-        .legend {
-            display: flex;
-            gap: 16px;
-            margin-top: 8px;
-            font-size: 12px;
-            color: var(--text-dim);
-        }
-        .legend .item { display: flex; align-items: center; gap: 6px; }
-        .legend .dot { width: 10px; height: 10px; border-radius: 2px; }
-
-        .recent-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-        }
-        .recent-table th {
-            text-align: left;
-            padding: 8px 12px;
-            color: var(--text-dim);
-            font-weight: 500;
-            border-bottom: 1px solid var(--border);
-        }
-        .recent-table td {
-            padding: 8px 12px;
-            border-bottom: 1px solid var(--border);
-            font-variant-numeric: tabular-nums;
-        }
-
-        .config-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 12px;
-        }
-        .config-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 14px;
-            background: var(--surface2);
-            border-radius: 6px;
-        }
-        .config-item .key { color: var(--text-dim); font-size: 13px; }
-        .config-item .val { font-weight: 500; font-size: 13px; }
-
-        .btn {
-            padding: 8px 16px;
-            border: 1px solid var(--border);
-            background: var(--surface2);
-            color: var(--text);
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: all 0.2s;
-        }
+        .header .ver { font-size: 12px; color: var(--text-dim); }
+        /* ── Nav tabs ── */
+        .nav { display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 24px; overflow-x: auto; }
+        .nav-t { padding: 11px 18px; cursor: pointer; font-size: 13px; color: var(--text-dim); border-bottom: 2px solid transparent; transition: all .2s; white-space: nowrap; user-select: none; }
+        .nav-t.on { color: var(--accent); border-bottom-color: var(--accent); }
+        .nav-t:hover:not(.on) { color: var(--text); }
+        /* ── Layout ── */
+        .main { padding: 20px 24px; max-width: 1200px; margin: 0 auto; width: 100%; }
+        .page { display: none; flex-direction: column; gap: 18px; }
+        .page.on { display: flex; }
+        /* ── Cards ── */
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; overflow: hidden; }
+        .card .lb { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; }
+        .card .vl { font-size: 24px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .card .un { font-size: 13px; color: var(--text-dim); font-weight: 400; }
+        /* ── Section ── */
+        .sec { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; overflow: hidden; }
+        .sec h2 { font-size: 15px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        /* ── Bar chart ── */
+        .bars { display: flex; align-items: flex-end; gap: 3px; height: 100px; }
+        .bars .b { flex: 1; min-width: 3px; max-width: 16px; background: var(--accent); border-radius: 2px 2px 0 0; transition: height .3s; position: relative; cursor: pointer; }
+        .bars .b:hover { background: var(--accent-hover); }
+        .bars .b .tt { display: none; position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); background: var(--surface2); border: 1px solid var(--border); padding: 3px 6px; border-radius: 4px; font-size: 10px; white-space: nowrap; z-index: 10; }
+        .bars .b:hover .tt { display: block; }
+        /* ── Percentiles ── */
+        .pcts { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 12px; }
+        .pct { text-align: center; padding: 10px 4px; background: var(--surface2); border-radius: 6px; }
+        .pct .lb { font-size: 10px; color: var(--text-dim); }
+        .pct .vl { font-size: 15px; font-weight: 600; margin-top: 3px; }
+        /* ── Breakdown ── */
+        .bkd { display: flex; gap: 6px; margin-top: 12px; }
+        .bkd .sg { height: 22px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 500; min-width: 48px; }
+        .bkd .sg.f { background: #4f46e5; } .bkd .sg.s { background: #0891b2; } .bkd .sg.p { background: #059669; }
+        .leg { display: flex; gap: 14px; margin-top: 6px; font-size: 11px; color: var(--text-dim); flex-wrap: wrap; }
+        .leg i { display: flex; align-items: center; gap: 4px; } .leg d { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+        /* ── Table ── */
+        .tw { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .rt { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .rt th { text-align: left; padding: 6px 10px; color: var(--text-dim); font-weight: 500; border-bottom: 1px solid var(--border); white-space: nowrap; }
+        .rt td { padding: 6px 10px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; white-space: nowrap; }
+        /* ── Config form ── */
+        .cfg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+        .cfg-i { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface2); border-radius: 6px; overflow: hidden; min-width: 0; }
+        .cfg-i .k { color: var(--text-dim); font-size: 12px; white-space: nowrap; min-width: 110px; flex-shrink: 0; }
+        .cfg-i input, .cfg-i select { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: 4px; font-size: 12px; font-family: inherit; }
+        .cfg-i input:focus, .cfg-i select:focus { outline: none; border-color: var(--accent); }
+        .cfg-hdr { grid-column: 1 / -1; font-size: 12px; color: var(--accent); font-weight: 600; margin-top: 8px; text-transform: uppercase; letter-spacing: 1px; }
+        /* ── Buttons ── */
+        .btn { padding: 7px 14px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 6px; cursor: pointer; font-size: 12px; transition: all .2s; white-space: nowrap; }
         .btn:hover { background: var(--accent); border-color: var(--accent); }
-
-        .tabs {
-            display: flex;
-            gap: 4px;
-            margin-bottom: 16px;
+        .btn-p { background: var(--accent); border-color: var(--accent); }
+        .btn-p:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+        .btn-ok { color: var(--green); border-color: #1e5c3a; }
+        .btn-ok:hover { background: #1e5c3a; color: #fff; }
+        .btn-no { color: var(--red); border-color: #5c2020; }
+        .btn-no:hover { background: #5c2020; color: #fff; }
+        /* ── Setup wizard ── */
+        .wiz { max-width: 640px; }
+        .step { margin-bottom: 20px; padding: 16px; background: var(--surface2); border-radius: 8px; }
+        .step-h { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .step-n { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+        .step-t { font-size: 14px; font-weight: 600; }
+        .step-b { font-size: 13px; color: var(--text-dim); line-height: 1.7; }
+        .step-b code { background: var(--bg); padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+        .path-in { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-top: 8px; font-family: Consolas, monospace; }
+        .path-in:focus { outline: none; border-color: var(--accent); }
+        .smsg { padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-top: 10px; }
+        .smsg.ok { background: #132e1f; color: var(--green); border: 1px solid #1e5c3a; }
+        .smsg.er { background: #2e1313; color: var(--red); border: 1px solid #5c2020; }
+        .smsg.in { background: #131f2e; color: var(--blue); border: 1px solid #1e3a5c; }
+        /* ── Toast ── */
+        .toasts { position: fixed; top: 16px; right: 16px; z-index: 999; display: flex; flex-direction: column; gap: 8px; }
+        .toast { padding: 10px 16px; border-radius: 8px; font-size: 13px; animation: sIn .3s; box-shadow: 0 4px 12px rgba(0,0,0,.5); }
+        .toast.s { background: #132e1f; color: var(--green); border: 1px solid #1e5c3a; }
+        .toast.e { background: #2e1313; color: var(--red); border: 1px solid #5c2020; }
+        @keyframes sIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+        @media (max-width:640px) {
+            .header{padding:12px 16px} .nav{padding:0 16px} .main{padding:16px}
+            .cards{grid-template-columns:repeat(2,1fr)} .cfg-grid{grid-template-columns:1fr}
+            .pcts{grid-template-columns:repeat(3,1fr)}
         }
-        .tab {
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            color: var(--text-dim);
-            transition: all 0.2s;
-        }
-        .tab.active { background: var(--accent); color: white; }
-        .tab:hover:not(.active) { background: var(--surface2); }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>🎵 HiFiSampler</h1>
-        <div class="status">
-            <div class="dot" id="status-dot"></div>
-            <span id="status-text">Connecting...</span>
-        </div>
-        <div class="spacer"></div>
-        <div class="version" id="version-text">v-</div>
-        <button class="btn" onclick="resetStats()">Reset Stats</button>
-    </div>
-
-    <div class="main">
-        <!-- Overview Cards -->
+<div class="toasts" id="toasts"></div>
+<div class="header">
+    <h1>🎵 HiFiSampler</h1>
+    <div class="status"><div class="dot" id="sd"></div><span id="st">连接中…</span></div>
+    <div class="spacer"></div>
+    <div class="ver">v0.1.0</div>
+</div>
+<div class="nav">
+    <div class="nav-t on" data-p="mon">📊 监控面板</div>
+    <div class="nav-t" data-p="cfg">⚙ 配置管理</div>
+    <div class="nav-t" data-p="set">🔧 安装向导</div>
+</div>
+<div class="main">
+    <!-- ══ Monitor ══ -->
+    <div class="page on" id="p-mon">
         <div class="cards">
-            <div class="card">
-                <div class="label">Total Requests</div>
-                <div class="value" id="total-requests">0</div>
-            </div>
-            <div class="card">
-                <div class="label">Avg Latency</div>
-                <div class="value" id="avg-latency">0<span class="unit">ms</span></div>
-            </div>
-            <div class="card">
-                <div class="label">P95 Latency</div>
-                <div class="value" id="p95-latency">0<span class="unit">ms</span></div>
-            </div>
-            <div class="card">
-                <div class="label">Cache Hit Rate</div>
-                <div class="value" id="cache-rate">0<span class="unit">%</span></div>
-            </div>
-            <div class="card">
-                <div class="label">Throughput</div>
-                <div class="value" id="throughput">0<span class="unit">rps</span></div>
-            </div>
-            <div class="card">
-                <div class="label">Errors</div>
-                <div class="value" id="total-errors">0</div>
+            <div class="card"><div class="lb">总请求数</div><div class="vl" id="c-req">0</div></div>
+            <div class="card"><div class="lb">平均延迟</div><div class="vl" id="c-avg">0<span class="un">ms</span></div></div>
+            <div class="card"><div class="lb">P95 延迟</div><div class="vl" id="c-p95">0<span class="un">ms</span></div></div>
+            <div class="card"><div class="lb">缓存命中率</div><div class="vl" id="c-hit">0<span class="un">%</span></div></div>
+            <div class="card"><div class="lb">吞吐量</div><div class="vl" id="c-rps">0<span class="un">rps</span></div></div>
+            <div class="card"><div class="lb">错误</div><div class="vl" id="c-err">0</div></div>
+        </div>
+        <div class="sec">
+            <h2>⏱ 延迟分布</h2>
+            <div class="bars" id="chart"></div>
+            <div class="pcts">
+                <div class="pct"><div class="lb">Min</div><div class="vl" id="v-min">-</div></div>
+                <div class="pct"><div class="lb">P50</div><div class="vl" id="v-p50">-</div></div>
+                <div class="pct"><div class="lb">P95</div><div class="vl" id="v-p95">-</div></div>
+                <div class="pct"><div class="lb">P99</div><div class="vl" id="v-p99">-</div></div>
+                <div class="pct"><div class="lb">Max</div><div class="vl" id="v-max">-</div></div>
             </div>
         </div>
-
-        <!-- Latency Distribution -->
-        <div class="section">
-            <h2>⏱ Latency Distribution</h2>
-            <div class="bar-chart" id="latency-chart"></div>
-            <div class="percentiles">
-                <div class="percentile-item">
-                    <div class="label">Min</div>
-                    <div class="value" id="min-ms">-</div>
-                </div>
-                <div class="percentile-item">
-                    <div class="label">P50</div>
-                    <div class="value" id="p50-ms">-</div>
-                </div>
-                <div class="percentile-item">
-                    <div class="label">P95</div>
-                    <div class="value" id="p95-ms">-</div>
-                </div>
-                <div class="percentile-item">
-                    <div class="label">P99</div>
-                    <div class="value" id="p99-ms">-</div>
-                </div>
-                <div class="percentile-item">
-                    <div class="label">Max</div>
-                    <div class="value" id="max-ms">-</div>
-                </div>
+        <div class="sec">
+            <h2>📊 耗时分布 (平均)</h2>
+            <div class="bkd" id="bkd"></div>
+            <div class="leg">
+                <i><d style="background:#4f46e5"></d> 特征提取</i>
+                <i><d style="background:#0891b2"></d> 合成</i>
+                <i><d style="background:#059669"></d> 后处理</i>
             </div>
         </div>
-
-        <!-- Time Breakdown -->
-        <div class="section">
-            <h2>📊 Time Breakdown (Avg)</h2>
-            <div class="breakdown" id="breakdown"></div>
-            <div class="legend">
-                <div class="item"><div class="dot" style="background:#4f46e5"></div>Feature Extraction</div>
-                <div class="item"><div class="dot" style="background:#0891b2"></div>Synthesis</div>
-                <div class="item"><div class="dot" style="background:#059669"></div>Post-processing</div>
-            </div>
-        </div>
-
-        <!-- Recent Requests -->
-        <div class="section">
-            <h2>📋 Recent Requests</h2>
-            <div style="overflow-x: auto;">
-                <table class="recent-table">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Total (ms)</th>
-                            <th>Feature</th>
-                            <th>Synthesis</th>
-                            <th>Post</th>
-                            <th>Samples</th>
-                            <th>Cache</th>
-                        </tr>
-                    </thead>
-                    <tbody id="recent-body"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Config -->
-        <div class="section">
-            <h2>⚙ Configuration</h2>
-            <div class="config-grid" id="config-grid"></div>
+        <div class="sec">
+            <h2>📋 最近请求 <div style="flex:1"></div> <button class="btn" onclick="resetStats()">清空统计</button></h2>
+            <div class="tw"><table class="rt">
+                <thead><tr><th>#</th><th>总计(ms)</th><th>特征</th><th>合成</th><th>后处理</th><th>采样数</th><th>缓存</th></tr></thead>
+                <tbody id="tbody"></tbody>
+            </table></div>
         </div>
     </div>
-
-    <script>
-        const BASE = window.location.origin;
-        let refreshInterval;
-
-        async function fetchStats() {
-            try {
-                const resp = await fetch(`${BASE}/stats`);
-                if (!resp.ok) throw new Error('Failed to fetch stats');
-                const data = await resp.json();
-                updateUI(data);
-                setOnline(true);
-            } catch (e) {
-                setOnline(false);
-            }
-        }
-
-        function setOnline(online) {
-            const dot = document.getElementById('status-dot');
-            const text = document.getElementById('status-text');
-            if (online) {
-                dot.className = 'dot';
-                text.textContent = 'Online';
-            } else {
-                dot.className = 'dot offline';
-                text.textContent = 'Offline';
-            }
-        }
-
-        function updateUI(data) {
-            document.getElementById('total-requests').textContent = data.total_requests;
-            document.getElementById('avg-latency').innerHTML = `${data.avg_total_ms.toFixed(1)}<span class="unit">ms</span>`;
-            document.getElementById('p95-latency').innerHTML = `${data.p95_total_ms.toFixed(1)}<span class="unit">ms</span>`;
-            document.getElementById('cache-rate').innerHTML = `${(data.cache_hit_rate * 100).toFixed(0)}<span class="unit">%</span>`;
-            document.getElementById('throughput').innerHTML = `${data.throughput_rps.toFixed(1)}<span class="unit">rps</span>`;
-            document.getElementById('total-errors').textContent = data.total_errors;
-
-            // Percentiles
-            document.getElementById('min-ms').textContent = data.min_total_ms.toFixed(1) + 'ms';
-            document.getElementById('p50-ms').textContent = data.p50_total_ms.toFixed(1) + 'ms';
-            document.getElementById('p95-ms').textContent = data.p95_total_ms.toFixed(1) + 'ms';
-            document.getElementById('p99-ms').textContent = data.p99_total_ms.toFixed(1) + 'ms';
-            document.getElementById('max-ms').textContent = data.max_total_ms.toFixed(1) + 'ms';
-
-            // Bar chart
-            updateBarChart(data.recent);
-
-            // Breakdown
-            updateBreakdown(data);
-
-            // Recent table
-            updateRecentTable(data.recent);
-        }
-
-        function updateBarChart(recent) {
-            const chart = document.getElementById('latency-chart');
-            if (!recent || recent.length === 0) {
-                chart.innerHTML = '<div style="color: var(--text-dim); font-size: 13px; display: flex; align-items: center; justify-content: center; width: 100%;">No data yet</div>';
-                return;
-            }
-            const maxMs = Math.max(...recent.map(r => r.total_ms), 1);
-            chart.innerHTML = recent.map((r, i) => {
-                const h = Math.max((r.total_ms / maxMs) * 100, 2);
-                return `<div class="bar" style="height: ${h}%">
-                    <div class="tooltip">#${i + 1}: ${r.total_ms.toFixed(1)}ms</div>
-                </div>`;
-            }).join('');
-        }
-
-        function updateBreakdown(data) {
-            const bd = document.getElementById('breakdown');
-            const total = data.avg_feature_ms + data.avg_synthesis_ms + data.avg_postprocess_ms;
-            if (total <= 0) {
-                bd.innerHTML = '<div style="color: var(--text-dim); font-size: 13px;">No data</div>';
-                return;
-            }
-            const fp = (data.avg_feature_ms / total * 100).toFixed(0);
-            const sp = (data.avg_synthesis_ms / total * 100).toFixed(0);
-            const pp = (data.avg_postprocess_ms / total * 100).toFixed(0);
-            bd.innerHTML = `
-                <div class="seg feat" style="flex: ${fp}">${data.avg_feature_ms.toFixed(0)}ms (${fp}%)</div>
-                <div class="seg synth" style="flex: ${sp}">${data.avg_synthesis_ms.toFixed(0)}ms (${sp}%)</div>
-                <div class="seg post" style="flex: ${pp}">${data.avg_postprocess_ms.toFixed(0)}ms (${pp}%)</div>
-            `;
-        }
-
-        function updateRecentTable(recent) {
-            const body = document.getElementById('recent-body');
-            if (!recent || recent.length === 0) {
-                body.innerHTML = '<tr><td colspan="7" style="color: var(--text-dim); text-align: center;">No requests yet</td></tr>';
-                return;
-            }
-            body.innerHTML = recent.map((r, i) => `
-                <tr>
-                    <td>${i + 1}</td>
-                    <td>${r.total_ms.toFixed(1)}</td>
-                    <td>${r.feature_ms.toFixed(1)}</td>
-                    <td>${r.synthesis_ms.toFixed(1)}</td>
-                    <td>${r.postprocess_ms.toFixed(1)}</td>
-                    <td>${r.output_samples}</td>
-                    <td>${r.cache_hit ? '✓' : '✗'}</td>
-                </tr>
-            `).join('');
-        }
-
-        async function fetchConfig() {
-            try {
-                const resp = await fetch(`${BASE}/config`);
-                const config = await resp.json();
-                displayConfig(config);
-            } catch (e) {
-                console.error('Failed to fetch config:', e);
-            }
-        }
-
-        function displayConfig(config, prefix = '') {
-            const grid = document.getElementById('config-grid');
-            const items = flattenObj(config, prefix);
-            grid.innerHTML = items.map(([key, val]) => `
-                <div class="config-item">
-                    <span class="key">${key}</span>
-                    <span class="val">${val}</span>
+    <!-- ══ Config ══ -->
+    <div class="page" id="p-cfg">
+        <div class="sec">
+            <h2>⚙ 运行时配置
+                <div style="flex:1"></div>
+                <button class="btn btn-p" onclick="saveCfg()">💾 保存配置</button>
+                <button class="btn" onclick="loadCfg()">🔄 重置</button>
+            </h2>
+            <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">修改配置后点击「保存配置」将写入 config.yaml。部分设置需要重启服务才能生效。</p>
+            <div class="cfg-grid" id="cfgGrid"></div>
+        </div>
+    </div>
+    <!-- ══ Setup ══ -->
+    <div class="page" id="p-set">
+        <div class="sec wiz">
+            <h2>🔧 OpenUTAU 安装向导</h2>
+            <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">将 HiFiSampler 桥接程序安装到 OpenUTAU，只需 3 步。</p>
+            <div class="step">
+                <div class="step-h"><div class="step-n">1</div><div class="step-t">选择 OpenUTAU Resamplers 目录</div></div>
+                <div class="step-b">
+                    <p>打开 OpenUTAU 安装目录，找到 <code>Resamplers</code> 文件夹。</p>
+                    <p>通常位于：<code>C:\Users\你的用户名\OpenUtau\Resamplers</code></p>
+                    <p>或 OpenUTAU 程序所在目录下的 <code>Resamplers</code> 文件夹。</p>
+                    <input class="path-in" id="ouPath" placeholder="输入或粘贴 Resamplers 文件夹的完整路径">
                 </div>
-            `).join('');
+            </div>
+            <div class="step">
+                <div class="step-h"><div class="step-n">2</div><div class="step-t">安装桥接程序</div></div>
+                <div class="step-b">
+                    <p>点击下方按钮，将 <code>hifisampler.exe</code> 复制到 Resamplers 目录。</p>
+                    <button class="btn btn-ok" onclick="installBridge()">📦 安装桥接程序</button>
+                    <div id="instSt"></div>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-h"><div class="step-n">3</div><div class="step-t">配置 OpenUTAU</div></div>
+                <div class="step-b">
+                    <ol style="padding-left:18px;line-height:2">
+                        <li><strong>重启 OpenUTAU</strong></li>
+                        <li>切换到 <strong>Classic 模式</strong></li>
+                        <li>点击右上角 <strong>🔧 扳手按钮</strong></li>
+                        <li>在 Resampler 下拉列表中选择 <code>hifisampler.exe</code></li>
+                        <li>完成！享受 HiFi 音质的 UTAU 合成 🎉</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+const B = location.origin;
+let curCfg = {};
+/* ── tabs ── */
+document.querySelectorAll('.nav-t').forEach(t => t.onclick = () => {
+    document.querySelectorAll('.nav-t').forEach(x => x.classList.remove('on'));
+    document.querySelectorAll('.page').forEach(x => x.classList.remove('on'));
+    t.classList.add('on');
+    document.getElementById('p-' + t.dataset.p).classList.add('on');
+});
+/* ── toast ── */
+function toast(m, ok=true) {
+    const c = document.getElementById('toasts'), d = document.createElement('div');
+    d.className = 'toast ' + (ok ? 's' : 'e'); d.textContent = m; c.appendChild(d);
+    setTimeout(() => { d.style.opacity = '0'; setTimeout(() => d.remove(), 300); }, 3000);
+}
+/* ══ Monitor ══ */
+async function poll() {
+    try {
+        const r = await fetch(B+'/stats');
+        if (!r.ok) throw 0;
+        const d = await r.json();
+        upMon(d); setOn(true);
+    } catch { setOn(false); }
+}
+function setOn(v) { document.getElementById('sd').className = v?'dot':'dot off'; document.getElementById('st').textContent = v?'在线':'离线'; }
+function $(id) { return document.getElementById(id); }
+function upMon(d) {
+    $('c-req').textContent = d.total_requests;
+    $('c-avg').innerHTML = d.avg_total_ms.toFixed(1)+'<span class="un">ms</span>';
+    $('c-p95').innerHTML = d.p95_total_ms.toFixed(1)+'<span class="un">ms</span>';
+    $('c-hit').innerHTML = (d.cache_hit_rate*100).toFixed(0)+'<span class="un">%</span>';
+    $('c-rps').innerHTML = d.throughput_rps.toFixed(1)+'<span class="un">rps</span>';
+    $('c-err').textContent = d.total_errors;
+    $('v-min').textContent = d.min_total_ms.toFixed(1)+'ms';
+    $('v-p50').textContent = d.p50_total_ms.toFixed(1)+'ms';
+    $('v-p95').textContent = d.p95_total_ms.toFixed(1)+'ms';
+    $('v-p99').textContent = d.p99_total_ms.toFixed(1)+'ms';
+    $('v-max').textContent = d.max_total_ms.toFixed(1)+'ms';
+    /* bar chart */
+    const ch = $('chart'), rc = d.recent;
+    if (!rc||!rc.length) { ch.innerHTML='<div style="color:var(--text-dim);font-size:12px;display:flex;align-items:center;justify-content:center;width:100%">暂无数据</div>'; }
+    else { const mx=Math.max(...rc.map(r=>r.total_ms),1); ch.innerHTML=rc.map((r,i)=>{const h=Math.max(r.total_ms/mx*100,2);return`<div class="b" style="height:${h}%"><div class="tt">#${i+1}: ${r.total_ms.toFixed(1)}ms</div></div>`;}).join(''); }
+    /* breakdown */
+    const bd=$('bkd'), t=d.avg_feature_ms+d.avg_synthesis_ms+d.avg_postprocess_ms;
+    if(t<=0){bd.innerHTML='<div style="color:var(--text-dim);font-size:12px">暂无数据</div>';}
+    else{const fp=(d.avg_feature_ms/t*100).toFixed(0),sp=(d.avg_synthesis_ms/t*100).toFixed(0),pp=(d.avg_postprocess_ms/t*100).toFixed(0);bd.innerHTML=`<div class="sg f" style="flex:${fp}">${d.avg_feature_ms.toFixed(0)}ms (${fp}%)</div><div class="sg s" style="flex:${sp}">${d.avg_synthesis_ms.toFixed(0)}ms (${sp}%)</div><div class="sg p" style="flex:${pp}">${d.avg_postprocess_ms.toFixed(0)}ms (${pp}%)</div>`;}
+    /* table */
+    const tb=$('tbody');
+    if(!rc||!rc.length){tb.innerHTML='<tr><td colspan="7" style="color:var(--text-dim);text-align:center">暂无请求</td></tr>';}
+    else{tb.innerHTML=rc.map((r,i)=>`<tr><td>${i+1}</td><td>${r.total_ms.toFixed(1)}</td><td>${r.feature_ms.toFixed(1)}</td><td>${r.synthesis_ms.toFixed(1)}</td><td>${r.postprocess_ms.toFixed(1)}</td><td>${r.output_samples}</td><td>${r.cache_hit?'✓':'✗'}</td></tr>`).join('');}
+}
+async function resetStats(){ try{await fetch(B+'/stats/reset',{method:'POST'});poll();toast('统计已清空');}catch{toast('清空失败',false);} }
+/* ══ Config ══ */
+const SCH = {
+    sample_rate:     {l:'采样率',     t:'number', g:'音频'},
+    n_fft:           {l:'FFT 大小',   t:'number', g:'音频'},
+    win_size:        {l:'窗口大小',   t:'number', g:'音频'},
+    hop_size:        {l:'Hop 大小',   t:'number', g:'音频'},
+    hop_size_interp: {l:'插值 Hop',   t:'number', g:'音频'},
+    num_mels:        {l:'Mel 通道数', t:'number', g:'音频'},
+    fmin:            {l:'最低频率',   t:'number', s:.1, g:'音频'},
+    fmax:            {l:'最高频率',   t:'number', s:.1, g:'音频'},
+    pad_frames:      {l:'填充帧数',   t:'number', g:'音频'},
+    'vocoder.model':      {l:'Vocoder 模型路径',t:'text', g:'模型'},
+    'vocoder.model_type': {l:'模型类型',       t:'sel', o:['onnx'], g:'模型'},
+    'hnsep.model':        {l:'HN-SEP 模型路径',t:'text', g:'模型'},
+    'processing.wave_norm':             {l:'波形归一化', t:'bool', g:'处理'},
+    'processing.wave_norm_clip_silence':{l:'裁剪静音',   t:'bool', g:'处理'},
+    'processing.loop_mode':             {l:'循环模式',   t:'bool', g:'处理'},
+    'processing.peak_limit':            {l:'峰值限制',   t:'number', s:.01, g:'处理'},
+    'performance.num_threads':{l:'推理线程数', t:'number', g:'性能'},
+    'performance.device':     {l:'设备',       t:'sel', o:['auto','cpu','directml'], g:'性能'},
+    'server.host':{l:'服务地址', t:'text',   g:'服务器'},
+    'server.port':{l:'服务端口', t:'number', g:'服务器'},
+};
+function gv(o,p){return p.split('.').reduce((a,k)=>(a&&a[k]!==undefined?a[k]:''),o);}
+function sv(o,p,v){const ks=p.split('.');let c=o;for(let i=0;i<ks.length-1;i++){if(!c[ks[i]])c[ks[i]]={};c=c[ks[i]];}c[ks[ks.length-1]]=v;}
+async function loadCfg(){
+    try{const r=await fetch(B+'/config');curCfg=await r.json();renderCfg();}catch{toast('加载配置失败',false);}
+}
+function renderCfg(){
+    const g=$('cfgGrid'), grps={};
+    for(const[p,s]of Object.entries(SCH)){const gn=s.g||'其他';if(!grps[gn])grps[gn]=[];grps[gn].push({p,...s,v:gv(curCfg,p)});}
+    let h='';
+    for(const[gn,items]of Object.entries(grps)){
+        h+=`<div class="cfg-hdr">${gn}</div>`;
+        for(const it of items){
+            h+=`<div class="cfg-i"><span class="k" title="${it.p}">${it.l}</span>`;
+            if(it.t==='bool') h+=`<select data-p="${it.p}" class="ci"><option value="true" ${it.v?'selected':''}>开启</option><option value="false" ${!it.v?'selected':''}>关闭</option></select>`;
+            else if(it.t==='sel'){h+=`<select data-p="${it.p}" class="ci">`;for(const o of it.o)h+=`<option value="${o}" ${it.v===o?'selected':''}>${o}</option>`;h+='</select>';}
+            else h+=`<input data-p="${it.p}" class="ci" type="${it.t}" value="${it.v}" ${it.s?'step="'+it.s+'"':''}>`;
+            h+='</div>';
         }
-
-        function flattenObj(obj, prefix = '') {
-            const result = [];
-            for (const [key, val] of Object.entries(obj)) {
-                const fullKey = prefix ? `${prefix}.${key}` : key;
-                if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
-                    result.push(...flattenObj(val, fullKey));
-                } else {
-                    result.push([fullKey, String(val)]);
-                }
-            }
-            return result;
-        }
-
-        async function resetStats() {
-            try {
-                await fetch(`${BASE}/stats/reset`, { method: 'POST' });
-                fetchStats();
-            } catch (e) {
-                console.error('Failed to reset stats:', e);
-            }
-        }
-
-        // Initial fetch
-        fetchStats();
-        fetchConfig();
-
-        // Auto-refresh every 2 seconds
-        refreshInterval = setInterval(fetchStats, 2000);
-    </script>
+    }
+    g.innerHTML=h;
+}
+async function saveCfg(){
+    const cfg=JSON.parse(JSON.stringify(curCfg));
+    document.querySelectorAll('.ci').forEach(el=>{const p=el.dataset.p,s=SCH[p];let v=el.value;if(s.t==='number')v=Number(v);else if(s.t==='bool')v=v==='true';sv(cfg,p,v);});
+    try{const r=await fetch(B+'/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});if(!r.ok)throw new Error(await r.text());curCfg=cfg;toast('配置已保存！部分设置重启后生效');}catch(e){toast('保存失败: '+e.message,false);}
+}
+/* ══ Setup ══ */
+async function installBridge(){
+    const p=$('ouPath').value.trim();
+    if(!p){toast('请先输入 Resamplers 目录路径',false);return;}
+    const st=$('instSt');
+    st.innerHTML='<div class="smsg in">正在安装…</div>';
+    try{
+        const r=await fetch(B+'/install-bridge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})});
+        const j=await r.json();
+        if(r.ok){st.innerHTML='<div class="smsg ok">✅ '+j.message+'</div>';toast('桥接程序安装成功！');}
+        else{st.innerHTML='<div class="smsg er">❌ '+j.error+'</div>';toast('安装失败',false);}
+    }catch{st.innerHTML='<div class="smsg er">❌ 连接服务器失败</div>';toast('安装失败',false);}
+}
+/* ── init ── */
+poll(); loadCfg(); setInterval(poll, 2000);
+</script>
 </body>
 </html>

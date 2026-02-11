@@ -181,4 +181,11 @@ impl Config {
             Err(_) => Self::default(),
         }
     }
+
+    /// Save config to a YAML file.
+    pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
+        let content = serde_yaml::to_string(self)?;
+        std::fs::write(path.as_ref(), content)?;
+        Ok(())
+    }
 }

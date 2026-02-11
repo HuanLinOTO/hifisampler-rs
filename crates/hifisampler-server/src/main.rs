@@ -15,7 +15,7 @@ use axum::{
     extract::State,
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use clap::Parser;
 use hifisampler_core::{
@@ -54,6 +54,7 @@ struct Args {
 #[derive(Clone)]
 struct AppState {
     config: Arc<Config>,
+    config_path: Arc<String>,
     models: Arc<Models>,
     cache: Arc<CacheManager>,
     stats: Arc<Mutex<StatsCollector>>,
@@ -92,6 +93,7 @@ async fn main() -> Result<()> {
 
     let state = AppState {
         config: Arc::new(config),
+        config_path: Arc::new(args.config.clone()),
         models: Arc::new(models),
         cache: Arc::new(cache),
         stats: Arc::new(Mutex::new(stats)),
@@ -105,6 +107,8 @@ async fn main() -> Result<()> {
         .route("/stats", get(stats_handler))
         .route("/stats/reset", post(stats_reset_handler))
         .route("/config", get(config_handler))
+        .route("/config", put(config_save_handler))
+        .route("/install-bridge", post(install_bridge_handler))
         .nest_service(
             "/ui",
             tower_http::services::ServeDir::new("webui"),
@@ -203,4 +207,87 @@ async fn stats_reset_handler(State(state): State<AppState>) -> impl IntoResponse
 /// No lock at all — Config is immutable behind Arc.
 async fn config_handler(State(state): State<AppState>) -> impl IntoResponse {
     (StatusCode::OK, axum::Json((*state.config).clone()))
+}
+
+/// PUT /config - Save configuration to file.
+/// Writes the submitted config to the config YAML file.
+/// Note: runtime config is NOT hot-reloaded; a server restart is needed.
+async fn config_save_handler(
+    State(state): State<AppState>,
+    axum::Json(new_config): axum::Json<Config>,
+) -> impl IntoResponse {
+    match new_config.save(state.config_path.as_str()) {
+        Ok(()) => {
+            info!("Config saved to {}", state.config_path);
+            (
+                StatusCode::OK,
+                axum::Json(serde_json::json!({"message": "配置已保存，部分设置重启后生效"})),
+            )
+        }
+        Err(e) => {
+            error!("Failed to save config: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(serde_json::json!({"error": format!("保存失败: {}", e)})),
+            )
+        }
+    }
+}
+
+/// POST /install-bridge - Copy bridge executable to target directory.
+#[derive(serde::Deserialize)]
+struct InstallBridgeRequest {
+    path: String,
+}
+
+async fn install_bridge_handler(
+    axum::Json(req): axum::Json<InstallBridgeRequest>,
+) -> impl IntoResponse {
+    let target_dir = std::path::Path::new(&req.path);
+
+    // Validate target directory exists
+    if !target_dir.is_dir() {
+        return (
+            StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({"error": format!("目录不存在: {}", req.path)})),
+        );
+    }
+
+    // Find bridge executable next to the server executable
+    let bridge_name = if cfg!(windows) { "hifisampler.exe" } else { "hifisampler" };
+    let server_exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(serde_json::json!({"error": format!("无法获取服务器路径: {}", e)})),
+            );
+        }
+    };
+    let bridge_src = server_exe.parent().unwrap_or(std::path::Path::new(".")).join(bridge_name);
+
+    if !bridge_src.exists() {
+        return (
+            StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({"error": format!("未找到桥接程序: {}", bridge_src.display())})),
+        );
+    }
+
+    let dest = target_dir.join(bridge_name);
+    match std::fs::copy(&bridge_src, &dest) {
+        Ok(_) => {
+            info!("Bridge installed: {} -> {}", bridge_src.display(), dest.display());
+            (
+                StatusCode::OK,
+                axum::Json(serde_json::json!({"message": format!("已安装到 {}", dest.display())})),
+            )
+        }
+        Err(e) => {
+            error!("Bridge install failed: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(serde_json::json!({"error": format!("复制失败: {}", e)})),
+            )
+        }
+    }
 }

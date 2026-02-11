@@ -496,6 +496,7 @@ dependencies = [
  "serde_yaml",
  "thiserror",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

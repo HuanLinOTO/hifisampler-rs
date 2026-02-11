@@ -19,3 +19,4 @@ base64.workspace = true
 regex.workspace = true
 parking_lot.workspace = true
 num-complex.workspace = true
+tracing-subscriber.workspace = true

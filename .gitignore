@@ -21,5 +21,16 @@ __pycache__/
 *.pt
 *.ckpt
 
+# Audio test files
+*.wav
+*.mp3
+
+# Cache files
+*.hifi.npz
+*.hifi.bin
+
 # Environment
 .env
+
+# Distribution
+/dist/

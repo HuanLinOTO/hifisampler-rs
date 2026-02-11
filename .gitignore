@@ -1,0 +1,25 @@
+# Build artifacts
+/target/
+**/target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python cache
+__pycache__/
+*.pyc
+
+# ONNX models (large files)
+*.onnx
+*.pt
+*.ckpt
+
+# Environment
+.env

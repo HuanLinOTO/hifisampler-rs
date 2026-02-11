@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HiFiSampler Dashboard</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d28;
+            --surface2: #252836;
+            --border: #2e3144;
+            --text: #e4e6f0;
+            --text-dim: #9ca0b4;
+            --accent: #6c7bf0;
+            --accent-hover: #8490f7;
+            --green: #4ade80;
+            --red: #f87171;
+            --yellow: #fbbf24;
+            --blue: #60a5fa;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        .header {
+            padding: 20px 32px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .header h1 { font-size: 20px; font-weight: 600; }
+        .header .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: var(--text-dim);
+        }
+        .header .status .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--green);
+            animation: pulse 2s infinite;
+        }
+        .header .status .dot.offline { background: var(--red); animation: none; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .header .spacer { flex: 1; }
+        .header .version { font-size: 12px; color: var(--text-dim); }
+
+        .main { padding: 24px 32px; display: flex; flex-direction: column; gap: 24px; }
+
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .card .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+        .card .value { font-size: 28px; font-weight: 700; margin-top: 8px; font-variant-numeric: tabular-nums; }
+        .card .unit { font-size: 14px; color: var(--text-dim); font-weight: 400; }
+
+        .section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+        }
+        .section h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .bar-chart {
+            display: flex;
+            align-items: flex-end;
+            gap: 4px;
+            height: 120px;
+            padding-top: 8px;
+        }
+        .bar-chart .bar {
+            flex: 1;
+            min-width: 4px;
+            background: var(--accent);
+            border-radius: 2px 2px 0 0;
+            transition: height 0.3s;
+            position: relative;
+        }
+        .bar-chart .bar:hover { background: var(--accent-hover); }
+        .bar-chart .bar .tooltip {
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            white-space: nowrap;
+            z-index: 10;
+        }
+        .bar-chart .bar:hover .tooltip { display: block; }
+
+        .percentiles {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .percentile-item {
+            text-align: center;
+            padding: 12px;
+            background: var(--surface2);
+            border-radius: 8px;
+        }
+        .percentile-item .label { font-size: 11px; color: var(--text-dim); }
+        .percentile-item .value { font-size: 18px; font-weight: 600; margin-top: 4px; }
+
+        .breakdown {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+            flex-wrap: wrap;
+        }
+        .breakdown .seg {
+            height: 24px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 500;
+            min-width: 60px;
+            transition: flex 0.3s;
+        }
+        .breakdown .seg.feat { background: #4f46e5; }
+        .breakdown .seg.synth { background: #0891b2; }
+        .breakdown .seg.post { background: #059669; }
+
+        .legend {
+            display: flex;
+            gap: 16px;
+            margin-top: 8px;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+        .legend .item { display: flex; align-items: center; gap: 6px; }
+        .legend .dot { width: 10px; height: 10px; border-radius: 2px; }
+
+        .recent-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .recent-table th {
+            text-align: left;
+            padding: 8px 12px;
+            color: var(--text-dim);
+            font-weight: 500;
+            border-bottom: 1px solid var(--border);
+        }
+        .recent-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 12px;
+        }
+        .config-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background: var(--surface2);
+            border-radius: 6px;
+        }
+        .config-item .key { color: var(--text-dim); font-size: 13px; }
+        .config-item .val { font-weight: 500; font-size: 13px; }
+
+        .btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border);
+            background: var(--surface2);
+            color: var(--text);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .btn:hover { background: var(--accent); border-color: var(--accent); }
+
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 16px;
+        }
+        .tab {
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-dim);
+            transition: all 0.2s;
+        }
+        .tab.active { background: var(--accent); color: white; }
+        .tab:hover:not(.active) { background: var(--surface2); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎵 HiFiSampler</h1>
+        <div class="status">
+            <div class="dot" id="status-dot"></div>
+            <span id="status-text">Connecting...</span>
+        </div>
+        <div class="spacer"></div>
+        <div class="version" id="version-text">v-</div>
+        <button class="btn" onclick="resetStats()">Reset Stats</button>
+    </div>
+
+    <div class="main">
+        <!-- Overview Cards -->
+        <div class="cards">
+            <div class="card">
+                <div class="label">Total Requests</div>
+                <div class="value" id="total-requests">0</div>
+            </div>
+            <div class="card">
+                <div class="label">Avg Latency</div>
+                <div class="value" id="avg-latency">0<span class="unit">ms</span></div>
+            </div>
+            <div class="card">
+                <div class="label">P95 Latency</div>
+                <div class="value" id="p95-latency">0<span class="unit">ms</span></div>
+            </div>
+            <div class="card">
+                <div class="label">Cache Hit Rate</div>
+                <div class="value" id="cache-rate">0<span class="unit">%</span></div>
+            </div>
+            <div class="card">
+                <div class="label">Throughput</div>
+                <div class="value" id="throughput">0<span class="unit">rps</span></div>
+            </div>
+            <div class="card">
+                <div class="label">Errors</div>
+                <div class="value" id="total-errors">0</div>
+            </div>
+        </div>
+
+        <!-- Latency Distribution -->
+        <div class="section">
+            <h2>⏱ Latency Distribution</h2>
+            <div class="bar-chart" id="latency-chart"></div>
+            <div class="percentiles">
+                <div class="percentile-item">
+                    <div class="label">Min</div>
+                    <div class="value" id="min-ms">-</div>
+                </div>
+                <div class="percentile-item">
+                    <div class="label">P50</div>
+                    <div class="value" id="p50-ms">-</div>
+                </div>
+                <div class="percentile-item">
+                    <div class="label">P95</div>
+                    <div class="value" id="p95-ms">-</div>
+                </div>
+                <div class="percentile-item">
+                    <div class="label">P99</div>
+                    <div class="value" id="p99-ms">-</div>
+                </div>
+                <div class="percentile-item">
+                    <div class="label">Max</div>
+                    <div class="value" id="max-ms">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Time Breakdown -->
+        <div class="section">
+            <h2>📊 Time Breakdown (Avg)</h2>
+            <div class="breakdown" id="breakdown"></div>
+            <div class="legend">
+                <div class="item"><div class="dot" style="background:#4f46e5"></div>Feature Extraction</div>
+                <div class="item"><div class="dot" style="background:#0891b2"></div>Synthesis</div>
+                <div class="item"><div class="dot" style="background:#059669"></div>Post-processing</div>
+            </div>
+        </div>
+
+        <!-- Recent Requests -->
+        <div class="section">
+            <h2>📋 Recent Requests</h2>
+            <div style="overflow-x: auto;">
+                <table class="recent-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Total (ms)</th>
+                            <th>Feature</th>
+                            <th>Synthesis</th>
+                            <th>Post</th>
+                            <th>Samples</th>
+                            <th>Cache</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recent-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Config -->
+        <div class="section">
+            <h2>⚙ Configuration</h2>
+            <div class="config-grid" id="config-grid"></div>
+        </div>
+    </div>
+
+    <script>
+        const BASE = window.location.origin;
+        let refreshInterval;
+
+        async function fetchStats() {
+            try {
+                const resp = await fetch(`${BASE}/stats`);
+                if (!resp.ok) throw new Error('Failed to fetch stats');
+                const data = await resp.json();
+                updateUI(data);
+                setOnline(true);
+            } catch (e) {
+                setOnline(false);
+            }
+        }
+
+        function setOnline(online) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            if (online) {
+                dot.className = 'dot';
+                text.textContent = 'Online';
+            } else {
+                dot.className = 'dot offline';
+                text.textContent = 'Offline';
+            }
+        }
+
+        function updateUI(data) {
+            document.getElementById('total-requests').textContent = data.total_requests;
+            document.getElementById('avg-latency').innerHTML = `${data.avg_total_ms.toFixed(1)}<span class="unit">ms</span>`;
+            document.getElementById('p95-latency').innerHTML = `${data.p95_total_ms.toFixed(1)}<span class="unit">ms</span>`;
+            document.getElementById('cache-rate').innerHTML = `${(data.cache_hit_rate * 100).toFixed(0)}<span class="unit">%</span>`;
+            document.getElementById('throughput').innerHTML = `${data.throughput_rps.toFixed(1)}<span class="unit">rps</span>`;
+            document.getElementById('total-errors').textContent = data.total_errors;
+
+            // Percentiles
+            document.getElementById('min-ms').textContent = data.min_total_ms.toFixed(1) + 'ms';
+            document.getElementById('p50-ms').textContent = data.p50_total_ms.toFixed(1) + 'ms';
+            document.getElementById('p95-ms').textContent = data.p95_total_ms.toFixed(1) + 'ms';
+            document.getElementById('p99-ms').textContent = data.p99_total_ms.toFixed(1) + 'ms';
+            document.getElementById('max-ms').textContent = data.max_total_ms.toFixed(1) + 'ms';
+
+            // Bar chart
+            updateBarChart(data.recent);
+
+            // Breakdown
+            updateBreakdown(data);
+
+            // Recent table
+            updateRecentTable(data.recent);
+        }
+
+        function updateBarChart(recent) {
+            const chart = document.getElementById('latency-chart');
+            if (!recent || recent.length === 0) {
+                chart.innerHTML = '<div style="color: var(--text-dim); font-size: 13px; display: flex; align-items: center; justify-content: center; width: 100%;">No data yet</div>';
+                return;
+            }
+            const maxMs = Math.max(...recent.map(r => r.total_ms), 1);
+            chart.innerHTML = recent.map((r, i) => {
+                const h = Math.max((r.total_ms / maxMs) * 100, 2);
+                return `<div class="bar" style="height: ${h}%">
+                    <div class="tooltip">#${i + 1}: ${r.total_ms.toFixed(1)}ms</div>
+                </div>`;
+            }).join('');
+        }
+
+        function updateBreakdown(data) {
+            const bd = document.getElementById('breakdown');
+            const total = data.avg_feature_ms + data.avg_synthesis_ms + data.avg_postprocess_ms;
+            if (total <= 0) {
+                bd.innerHTML = '<div style="color: var(--text-dim); font-size: 13px;">No data</div>';
+                return;
+            }
+            const fp = (data.avg_feature_ms / total * 100).toFixed(0);
+            const sp = (data.avg_synthesis_ms / total * 100).toFixed(0);
+            const pp = (data.avg_postprocess_ms / total * 100).toFixed(0);
+            bd.innerHTML = `
+                <div class="seg feat" style="flex: ${fp}">${data.avg_feature_ms.toFixed(0)}ms (${fp}%)</div>
+                <div class="seg synth" style="flex: ${sp}">${data.avg_synthesis_ms.toFixed(0)}ms (${sp}%)</div>
+                <div class="seg post" style="flex: ${pp}">${data.avg_postprocess_ms.toFixed(0)}ms (${pp}%)</div>
+            `;
+        }
+
+        function updateRecentTable(recent) {
+            const body = document.getElementById('recent-body');
+            if (!recent || recent.length === 0) {
+                body.innerHTML = '<tr><td colspan="7" style="color: var(--text-dim); text-align: center;">No requests yet</td></tr>';
+                return;
+            }
+            body.innerHTML = recent.map((r, i) => `
+                <tr>
+                    <td>${i + 1}</td>
+                    <td>${r.total_ms.toFixed(1)}</td>
+                    <td>${r.feature_ms.toFixed(1)}</td>
+                    <td>${r.synthesis_ms.toFixed(1)}</td>
+                    <td>${r.postprocess_ms.toFixed(1)}</td>
+                    <td>${r.output_samples}</td>
+                    <td>${r.cache_hit ? '✓' : '✗'}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function fetchConfig() {
+            try {
+                const resp = await fetch(`${BASE}/config`);
+                const config = await resp.json();
+                displayConfig(config);
+            } catch (e) {
+                console.error('Failed to fetch config:', e);
+            }
+        }
+
+        function displayConfig(config, prefix = '') {
+            const grid = document.getElementById('config-grid');
+            const items = flattenObj(config, prefix);
+            grid.innerHTML = items.map(([key, val]) => `
+                <div class="config-item">
+                    <span class="key">${key}</span>
+                    <span class="val">${val}</span>
+                </div>
+            `).join('');
+        }
+
+        function flattenObj(obj, prefix = '') {
+            const result = [];
+            for (const [key, val] of Object.entries(obj)) {
+                const fullKey = prefix ? `${prefix}.${key}` : key;
+                if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+                    result.push(...flattenObj(val, fullKey));
+                } else {
+                    result.push([fullKey, String(val)]);
+                }
+            }
+            return result;
+        }
+
+        async function resetStats() {
+            try {
+                await fetch(`${BASE}/stats/reset`, { method: 'POST' });
+                fetchStats();
+            } catch (e) {
+                console.error('Failed to reset stats:', e);
+            }
+        }
+
+        // Initial fetch
+        fetchStats();
+        fetchConfig();
+
+        // Auto-refresh every 2 seconds
+        refreshInterval = setInterval(fetchStats, 2000);
+    </script>
+</body>
+</html>

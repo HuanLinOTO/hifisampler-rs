@@ -1,0 +1,39 @@
+# HiFiSampler Rust Configuration
+# ============================
+
+# Audio settings
+sample_rate: 44100
+win_size: 2048
+hop_size: 512
+hop_size_interp: 128
+num_mels: 128
+n_fft: 2048
+fmin: 40.0
+fmax: 16000.0
+pad_frames: 6
+
+# Vocoder model
+vocoder:
+  model: models/vocoder/model.onnx
+  model_type: onnx
+
+# Harmonic-Noise Separation model
+hnsep:
+  model: models/hnsep/model.onnx
+
+# Processing settings
+processing:
+  wave_norm: false
+  wave_norm_clip_silence: true
+  loop_mode: false
+  peak_limit: 1.0
+
+# Performance settings
+performance:
+  num_threads: 2
+  device: auto
+
+# Server settings
+server:
+  host: "127.0.0.1"
+  port: 8572

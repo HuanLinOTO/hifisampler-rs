@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use ndarray::Array2;
+use ort::execution_providers::DirectMLExecutionProvider;
 use ort::session::Session;
 use ort::value::Tensor;
 use std::path::Path;
@@ -14,15 +15,30 @@ pub struct Vocoder {
 
 impl Vocoder {
     /// Load a HiFi-GAN ONNX model.
-    pub fn load(model_path: impl AsRef<Path>) -> Result<Self> {
+    ///
+    /// `device` controls the execution provider:
+    /// - `"directml"` or `"auto"` → try DirectML first, fall back to CPU
+    /// - `"cpu"` → CPU only
+    pub fn load(model_path: impl AsRef<Path>, device: &str, num_threads: usize) -> Result<Self> {
         let path = model_path.as_ref();
         info!("Loading vocoder from: {}", path.display());
 
-        let session = Session::builder()?
-            .with_intra_threads(4)?
+        let mut builder = Session::builder()?;
+
+        let use_directml = matches!(device.to_lowercase().as_str(), "auto" | "directml" | "dml");
+        if use_directml {
+            info!("Attempting to register DirectML execution provider for vocoder...");
+            builder = builder.with_execution_providers([
+                DirectMLExecutionProvider::default().build(),
+            ])?;
+        }
+
+        let threads = if num_threads == 0 { 4 } else { num_threads };
+        let session = builder
+            .with_intra_threads(threads)?
             .commit_from_file(path)?;
 
-        info!("Vocoder loaded successfully");
+        info!("Vocoder loaded successfully (device={})", device);
         Ok(Self { session })
     }
 

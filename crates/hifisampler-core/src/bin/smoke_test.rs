@@ -18,7 +18,7 @@ fn main() -> anyhow::Result<()> {
 
     // Test 1: Load vocoder
     println!("\n[1] Loading vocoder...");
-    let mut vocoder = Vocoder::load(&config.vocoder.model)?;
+    let mut vocoder = Vocoder::load(&config.vocoder.model, &config.performance.device, config.performance.num_threads)?;
     println!("    ✓ Vocoder loaded");
 
     // Test 2: Run vocoder with dummy data
@@ -38,7 +38,7 @@ fn main() -> anyhow::Result<()> {
     // Test 3: Load HN-SEP
     if config.hnsep.model.exists() {
         println!("\n[3] Loading HN-SEP model...");
-        let mut hnsep = HnsepModel::load(&config.hnsep.model, config.n_fft, config.hop_size)?;
+        let mut hnsep = HnsepModel::load(&config.hnsep.model, config.n_fft, config.hop_size, &config.performance.device, config.performance.num_threads)?;
         println!("    ✓ HN-SEP loaded");
 
         // Test with dummy audio (1 second of sine wave)

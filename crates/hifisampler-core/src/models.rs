@@ -21,8 +21,15 @@ impl Models {
     pub fn load(config: &Config) -> Result<Self> {
         info!("Loading models...");
 
+        let device = &config.performance.device;
+        let num_threads = config.performance.num_threads;
+
         // Load vocoder
-        let vocoder = Arc::new(Mutex::new(Vocoder::load(&config.vocoder.model)?));
+        let vocoder = Arc::new(Mutex::new(Vocoder::load(
+            &config.vocoder.model,
+            device,
+            num_threads,
+        )?));
 
         // Load HN-SEP (optional)
         let hnsep = if config.hnsep.model.exists() {
@@ -30,6 +37,8 @@ impl Models {
                 &config.hnsep.model,
                 config.n_fft,
                 config.hop_size,
+                device,
+                num_threads,
             )?)))
         } else {
             info!("HN-SEP model not found, harmonic separation disabled");

@@ -27,6 +27,7 @@ use hifisampler_core::{
 };
 use parking_lot::Mutex;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::task;
 use tracing::{error, info};
 
@@ -48,16 +49,16 @@ struct Args {
     port: Option<u16>,
 }
 
-/// Shared application state.
+/// Decomposed application state — each component is independently wrapped
+/// so that inference does NOT block health checks, stats, or config queries.
+#[derive(Clone)]
 struct AppState {
-    config: Config,
-    models: Models,
-    cache: CacheManager,
-    stats: StatsCollector,
-    ready: bool,
+    config: Arc<Config>,
+    models: Arc<Models>,
+    cache: Arc<CacheManager>,
+    stats: Arc<Mutex<StatsCollector>>,
+    ready: Arc<AtomicBool>,
 }
-
-type SharedState = Arc<Mutex<AppState>>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -82,18 +83,20 @@ async fn main() -> Result<()> {
         config.server.port = port;
     }
 
+    let addr = format!("{}:{}", config.server.host, config.server.port);
+
     // Load models
     let models = Models::load(&config)?;
     let cache = CacheManager::new();
     let stats = StatsCollector::new();
 
-    let state = Arc::new(Mutex::new(AppState {
-        config: config.clone(),
-        models,
-        cache,
-        stats,
-        ready: true,
-    }));
+    let state = AppState {
+        config: Arc::new(config),
+        models: Arc::new(models),
+        cache: Arc::new(cache),
+        stats: Arc::new(Mutex::new(stats)),
+        ready: Arc::new(AtomicBool::new(true)),
+    };
 
     // Build router
     let app = Router::new()
@@ -111,7 +114,6 @@ async fn main() -> Result<()> {
         )
         .with_state(state);
 
-    let addr = format!("{}:{}", config.server.host, config.server.port);
     info!("Server listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -121,9 +123,9 @@ async fn main() -> Result<()> {
 }
 
 /// GET / - Health check endpoint.
-async fn health_check(State(state): State<SharedState>) -> impl IntoResponse {
-    let state = state.lock();
-    if state.ready {
+/// Uses AtomicBool — never blocks on inference.
+async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
+    if state.ready.load(Ordering::Relaxed) {
         (StatusCode::OK, "HiFiSampler server is ready")
     } else {
         (StatusCode::SERVICE_UNAVAILABLE, "Server not ready")
@@ -132,13 +134,16 @@ async fn health_check(State(state): State<SharedState>) -> impl IntoResponse {
 
 /// POST / - Inference endpoint.
 /// Body: UTAU resample parameters as plain text.
+///
+/// Clones Arc refs into `spawn_blocking` — no global Mutex lock.
+/// Models internally use per-model Mutex (only locked for actual ONNX calls).
 async fn inference_handler(
-    State(state): State<SharedState>,
+    State(state): State<AppState>,
     body: String,
 ) -> impl IntoResponse {
     let body = body.trim().to_string();
 
-    // Parse params
+    // Parse params (cheap, no lock needed)
     let params = match UtauParams::parse(&body) {
         Ok(p) => p,
         Err(e) => {
@@ -147,25 +152,25 @@ async fn inference_handler(
         }
     };
 
-    // Run inference in blocking thread (ONNX Runtime is sync)
-    let state_clone = Arc::clone(&state);
+    // Clone Arc refs for the blocking task — NO Mutex lock held across spawn
+    let config = Arc::clone(&state.config);
+    let models = Arc::clone(&state.models);
+    let cache = Arc::clone(&state.cache);
+
     let result = task::spawn_blocking(move || {
-        let state = state_clone.lock();
-        resampler::resample(&params, &state.config, &state.models, &state.cache)
+        resampler::resample(&params, &config, &models, &cache)
     })
     .await;
 
     match result {
-        Ok(Ok(stats)) => {
-            // Record stats
-            {
-                let mut state = state.lock();
-                state.stats.record(stats);
-            }
+        Ok(Ok(resample_stats)) => {
+            // Brief lock to record stats — microseconds, not seconds
+            state.stats.lock().record(resample_stats);
             (StatusCode::OK, "OK".to_string())
         }
         Ok(Err(e)) => {
             error!("Inference error: {}", e);
+            state.stats.lock().record_error();
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Inference error: {}", e),
@@ -182,21 +187,20 @@ async fn inference_handler(
 }
 
 /// GET /stats - Performance statistics.
-async fn stats_handler(State(state): State<SharedState>) -> impl IntoResponse {
-    let state = state.lock();
-    let summary = state.stats.summary();
+/// Brief lock — only reading stats, no interference with inference.
+async fn stats_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let summary = state.stats.lock().summary();
     (StatusCode::OK, axum::Json(summary))
 }
 
 /// POST /stats/reset - Reset statistics.
-async fn stats_reset_handler(State(state): State<SharedState>) -> impl IntoResponse {
-    let mut state = state.lock();
-    state.stats.reset();
+async fn stats_reset_handler(State(state): State<AppState>) -> impl IntoResponse {
+    state.stats.lock().reset();
     (StatusCode::OK, "Stats reset")
 }
 
 /// GET /config - Current configuration.
-async fn config_handler(State(state): State<SharedState>) -> impl IntoResponse {
-    let state = state.lock();
-    (StatusCode::OK, axum::Json(state.config.clone()))
+/// No lock at all — Config is immutable behind Arc.
+async fn config_handler(State(state): State<AppState>) -> impl IntoResponse {
+    (StatusCode::OK, axum::Json((*state.config).clone()))
 }

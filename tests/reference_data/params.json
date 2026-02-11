@@ -1,0 +1,13 @@
+{
+  "sample_rate": 44100,
+  "n_fft": 2048,
+  "hop_size": 512,
+  "origin_hop_size": 128,
+  "win_size": 2048,
+  "num_mels": 128,
+  "fmin": 40.0,
+  "fmax": 16000.0,
+  "fill": 6,
+  "drc_clip_val": 1e-09,
+  "drc_C": 1
+}

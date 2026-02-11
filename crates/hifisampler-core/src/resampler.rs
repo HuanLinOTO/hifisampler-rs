@@ -1,11 +1,9 @@
-//! Core resampler pipeline.
+//! Core resampler pipeline — **exact match** with Python `backend/resampler.py`.
 //!
-//! Implements the full UTAU resampling pipeline:
-//! WAV → Feature extraction → Time stretch → Pitch bend → Vocoder synthesis → Post-processing
+//! All time-axis arithmetic, interpolation calls, and mel/f0 tensor shapes
+//! are ported line-by-line from the Python implementation.
 
-use crate::audio::{
-    self, interp1d, akima_interp, loudness_normalize, peak, pre_emphasis_tension,
-};
+use crate::audio::{self, interp1d, akima_interp, loudness_normalize, peak, pre_emphasis_tension};
 use crate::cache::CacheManager;
 use crate::config::Config;
 use crate::growl::apply_growl;
@@ -32,7 +30,7 @@ pub struct ResampleStats {
     pub cache_hit: bool,
 }
 
-/// Perform the full resample operation.
+/// Perform the full resample operation — matches Python `Resampler.render()`.
 pub fn resample(
     params: &UtauParams,
     config: &Config,
@@ -43,9 +41,9 @@ pub fn resample(
     let mut stats = ResampleStats::default();
 
     let flags = parse_flags(&params.flags);
-    let sr = config.sample_rate as f32;
+    let sr = config.sample_rate as f64;
 
-    // ── Step 1: Feature extraction ──
+    // ── Step 1: Feature extraction (matches Python generate_features) ──
     let feat_start = Instant::now();
     let (mel_origin, scale) = get_features(
         &params.input_path,
@@ -55,161 +53,307 @@ pub fn resample(
         &flags,
     )?;
     stats.feature_ms = feat_start.elapsed().as_secs_f64() * 1000.0;
-    stats.cache_hit = false; // TODO: detect from cache
 
-    // ── Step 2: Resample (time stretch + pitch bend + synthesis) ──
+    // ── Step 2: Resample (matches Python Resampler.resample) ──
     let synth_start = Instant::now();
 
-    let hop_size = config.hop_size;
-    let hop_interp = config.hop_size_interp;
-    let pad_frames = config.pad_frames;
+    if params.output_path == "nul" || params.output_path == "/dev/null" {
+        debug!("Null output file, skipping synthesis");
+        stats.total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
+        return Ok(stats);
+    }
 
-    // Time axis calculations
-    let offset_samples = (params.offset / 1000.0 * sr).round() as i64;
-    let consonant_samples = (params.consonant / 1000.0 * sr).round() as i64;
-    let length_req_samples = (params.length / 1000.0 * sr).round() as i64;
-    
-    // Cutoff handling (UTAU convention: negative = from end)
-    let cutoff_samples = if params.cutoff < 0.0 {
-        (-params.cutoff / 1000.0 * sr).round() as i64
+    let _mod_factor = params.modulation / 100.0;
+
+    // Python time calculations (all in seconds):
+    //   thop_origin = CONFIG.origin_hop_size / CONFIG.sample_rate
+    //   thop        = CONFIG.hop_size / CONFIG.sample_rate
+    let thop_origin = config.hop_size_interp as f64 / sr;  // origin_hop_size=128 → 0.002902s
+    let thop = config.hop_size as f64 / sr;                 // hop_size=512 → 0.01161s
+
+    // t_area_origin = arange(mel_origin.shape[1]) * thop_origin + thop_origin / 2
+    let n_mel_frames = mel_origin.ncols();
+    let t_area_origin: Vec<f64> = (0..n_mel_frames)
+        .map(|i| i as f64 * thop_origin + thop_origin / 2.0)
+        .collect();
+    let total_time = t_area_origin.last().copied().unwrap_or(0.0) + thop_origin / 2.0;
+
+    // Velocity, offset, cutoff (in seconds)
+    let vel = 2.0f64.powf(1.0 - params.velocity as f64 / 100.0);
+    let offset = params.offset as f64 / 1000.0;
+    let cutoff = params.cutoff as f64 / 1000.0;
+    let start = offset;
+
+    // End time calculation
+    let end = if params.cutoff < 0.0 {
+        start - cutoff  // cutoff is negative → start - (-|cutoff|/1000) = start + |cutoff|/1000
     } else {
-        let total_input_samples = mel_origin.ncols() as i64 * hop_interp as i64;
-        total_input_samples - (params.cutoff / 1000.0 * sr).round() as i64
+        total_time - cutoff
+    };
+    let con = start + params.consonant as f64 / 1000.0;
+
+    let length_req = params.length as f64 / 1000.0;
+    let mut stretch_length = end - con;
+
+    // ── Loop mode (He flag) ──
+    let (mel_work, t_area_work, total_time_work) = if config.processing.loop_mode || flags.he {
+        let con_frame = ((con + thop_origin / 2.0) / thop_origin) as usize;
+        let end_frame = ((end + thop_origin / 2.0) / thop_origin) as usize;
+        let con_frame = con_frame.min(n_mel_frames);
+        let end_frame = end_frame.min(n_mel_frames);
+
+        let mel_loop = mel_origin.slice(ndarray::s![.., con_frame..end_frame]).to_owned();
+        let pad_loop_size = (length_req / thop_origin) as usize + 1;
+
+        // Reflect-pad mel_loop
+        let loop_frames = mel_loop.ncols();
+        let mut padded_mel = Array2::zeros((mel_origin.nrows(), loop_frames + pad_loop_size));
+        for t in 0..(loop_frames + pad_loop_size) {
+            let src_t = reflect_index_mel(t, loop_frames);
+            for m in 0..mel_origin.nrows() {
+                padded_mel[[m, t]] = mel_loop[[m, src_t]];
+            }
+        }
+
+        // Concatenate: mel_origin[:, :con_frame] + padded_mel
+        let mut mel_new = Array2::zeros((mel_origin.nrows(), con_frame + padded_mel.ncols()));
+        for t in 0..con_frame {
+            for m in 0..mel_origin.nrows() {
+                mel_new[[m, t]] = mel_origin[[m, t]];
+            }
+        }
+        for t in 0..padded_mel.ncols() {
+            for m in 0..mel_origin.nrows() {
+                mel_new[[m, con_frame + t]] = padded_mel[[m, t]];
+            }
+        }
+
+        stretch_length = pad_loop_size as f64 * thop_origin;
+
+        let new_n = mel_new.ncols();
+        let new_t_area: Vec<f64> = (0..new_n)
+            .map(|i| i as f64 * thop_origin + thop_origin / 2.0)
+            .collect();
+        let new_total = new_t_area.last().copied().unwrap_or(0.0) + thop_origin / 2.0;
+
+        (mel_new, new_t_area, new_total)
+    } else {
+        (mel_origin.clone(), t_area_origin.clone(), total_time)
     };
 
-    // Convert to mel frame indices (at hop_size_interp resolution)
-    let start_frame = (offset_samples as f32 / hop_interp as f32).round() as i64;
-    let con_frame = (consonant_samples as f32 / hop_interp as f32).round() as i64;
-    let end_frame = (cutoff_samples as f32 / hop_interp as f32).round() as i64;
+    // ── Interpolator for mel ──
+    // mel_interp = interp.interp1d(t_area_origin, mel_origin, axis=1)
+    // (We'll interpolate each mel band separately below)
 
-    // Ensure valid range
-    let n_mel_frames = mel_origin.ncols() as i64;
-    let start_frame = start_frame.max(0).min(n_mel_frames - 1) as usize;
-    let end_frame = end_frame.max(start_frame as i64 + 1).min(n_mel_frames) as usize;
-    let con_frame = con_frame.max(0).min((end_frame - start_frame) as i64) as usize;
-
-    // Extract the relevant mel segment
-    let mel_segment = mel_origin.slice(ndarray::s![.., start_frame..end_frame]).to_owned();
-    let _seg_frames = mel_segment.ncols();
-
-    // Velocity → consonant speed factor
-    let velocity = params.velocity.clamp(0.0, 200.0);
-    let vel_factor = 2.0f32.powf((100.0 - velocity) / 100.0);
-
-    // Loop mode handling
-    let mel_work = if flags.he || config.processing.loop_mode {
-        loop_pad_mel(&mel_segment, length_req_samples as usize, hop_interp)
+    // Scaling ratio
+    let scaling_ratio = if stretch_length < length_req {
+        length_req / stretch_length
     } else {
-        mel_segment.clone()
+        1.0
     };
 
-    // Time stretching: interpolate mel from hop_interp to hop_size grid
-    let ratio = hop_interp as f32 / hop_size as f32;
-    let work_frames = mel_work.ncols();
-
-    // Target frame count
-    let target_frames = if length_req_samples > 0 {
-        (length_req_samples as f32 / hop_size as f32).ceil() as usize
-    } else {
-        (work_frames as f32 / ratio).ceil() as usize
+    // stretch function: maps render time → source time
+    // def stretch(t, con, scaling_ratio):
+    //     return np.where(t < vel*con, t/vel, con + (t - vel*con) / scaling_ratio)
+    let stretch_fn = |t: f64| -> f64 {
+        if t < vel * con {
+            t / vel
+        } else {
+            con + (t - vel * con) / scaling_ratio
+        }
     };
 
-    // Build time mapping (stretch function)
-    let stretched_mel = stretch_mel(
-        &mel_work,
-        con_frame,
-        vel_factor,
-        target_frames,
-        ratio,
-    );
+    // stretched_n_frames = (con*vel + (total_time - con) * scaling_ratio) // thop + 1
+    let stretched_n_frames = ((con * vel + (total_time_work - con) * scaling_ratio) / thop + 1.0) as usize;
 
-    // Add padding frames
-    let padded_mel = pad_mel(&stretched_mel, pad_frames);
-    let total_frames = padded_mel.ncols();
+    // stretched_t_mel = arange(stretched_n_frames) * thop + thop / 2
+    let stretched_t_mel: Vec<f64> = (0..stretched_n_frames)
+        .map(|i| i as f64 * thop + thop / 2.0)
+        .collect();
 
-    // ── Pitch bend ──
-    let midi_note = note_to_midi(&params.pitch).unwrap_or(60) as f32;
+    // Cut frames calculation (fill = pad_frames)
+    let fill = config.pad_frames as f64;
+
+    // start_left_mel_frames = (start*vel + thop/2)//thop
+    let start_left_mel_frames = ((start * vel + thop / 2.0) / thop).floor();
+    let cut_left_mel_frames = if start_left_mel_frames > fill {
+        start_left_mel_frames - fill
+    } else {
+        0.0
+    };
+
+    // end_right_mel_frames = stretched_n_frames - (length_req+con*vel + thop/2)//thop
+    let end_right_mel_frames = stretched_n_frames as f64 - ((length_req + con * vel + thop / 2.0) / thop).floor();
+    let cut_right_mel_frames = if end_right_mel_frames > fill {
+        end_right_mel_frames - fill
+    } else {
+        0.0
+    };
+
+    // Trim stretched_t_mel
+    let cut_left = cut_left_mel_frames as usize;
+    let cut_right = cut_right_mel_frames as usize;
+    let trimmed_end = stretched_n_frames.saturating_sub(cut_right);
+    let cut_left = cut_left.min(trimmed_end);
+    let stretched_t_mel_trimmed: Vec<f64> = stretched_t_mel[cut_left..trimmed_end].to_vec();
+
+    if stretched_t_mel_trimmed.is_empty() {
+        anyhow::bail!("No frames to render after trimming");
+    }
+
+    // Apply stretch function and clamp to valid range
+    let t_last = t_area_work.last().copied().unwrap_or(0.0);
+    let stretch_t_mel: Vec<f64> = stretched_t_mel_trimmed
+        .iter()
+        .map(|&t| stretch_fn(t).clamp(0.0, t_last))
+        .collect();
+
+    // new_start / new_end (relative to the trimmed mel)
+    let new_start = start * vel - cut_left_mel_frames * thop;
+    let new_end = (length_req + con * vel) - cut_left_mel_frames * thop;
+
+    // Interpolate mel: mel_render = mel_interp(stretch_t_mel)
+    let render_frames = stretch_t_mel.len();
+    let num_mels = mel_work.nrows();
+    let mut mel_render = Array2::zeros((num_mels, render_frames));
+
+    let t_area_f32: Vec<f32> = t_area_work.iter().map(|&t| t as f32).collect();
+    let stretch_t_f32: Vec<f32> = stretch_t_mel.iter().map(|&t| t as f32).collect();
+
+    for m in 0..num_mels {
+        let y_src: Vec<f32> = (0..mel_work.ncols()).map(|i| mel_work[[m, i]]).collect();
+        let y_interp = interp1d(&t_area_f32, &y_src, &stretch_t_f32);
+        for (i, &v) in y_interp.iter().enumerate() {
+            mel_render[[m, i]] = v;
+        }
+    }
+
+    // ── Pitch / F0 calculation ──
+    // t = arange(mel_render.shape[1]) * thop
+    let t_render: Vec<f64> = (0..render_frames)
+        .map(|i| i as f64 * thop)
+        .collect();
+
+    let midi_note = note_to_midi(&params.pitch).unwrap_or(60) as f64;
     let pitchbend_cents = decode_pitchbend(&params.pitchbend);
 
-    // Build F0 curve
-    let f0 = build_f0_curve(
-        midi_note,
-        &pitchbend_cents,
-        flags.t as f32,
-        total_frames,
-        pad_frames,
-        hop_size,
-        sr,
-        params.tempo,
-    );
+    // pitch = pitchbend / 100 + self.pitch
+    let mut pitch_data: Vec<f64> = pitchbend_cents
+        .iter()
+        .map(|&c| c as f64 / 100.0 + midi_note)
+        .collect();
+
+    // Apply t flag offset
+    if flags.t != 0 {
+        let t_offset = flags.t as f64 / 100.0;
+        pitch_data.iter_mut().for_each(|p| *p += t_offset);
+    }
+
+    // If no pitchbend data, use constant pitch
+    if pitch_data.is_empty() {
+        pitch_data = vec![midi_note + flags.t as f64 / 100.0];
+    }
+
+    // t_pitch = 60 * arange(len(pitch)) / (tempo * 96) + new_start
+    let tempo = if params.tempo > 0.0 { params.tempo as f64 } else { 120.0 };
+    let t_pitch: Vec<f64> = (0..pitch_data.len())
+        .map(|i| 60.0 * i as f64 / (tempo * 96.0) + new_start)
+        .collect();
+
+    // Akima interpolation of pitch
+    let t_pitch_f32: Vec<f32> = t_pitch.iter().map(|&t| t as f32).collect();
+    let pitch_f32: Vec<f32> = pitch_data.iter().map(|&p| p as f32).collect();
+
+    // pitch_render = pitch_interp(clip(t, new_start, t_pitch[-1]))
+    let t_pitch_last = t_pitch.last().copied().unwrap_or(0.0);
+    let t_render_clamped: Vec<f32> = t_render
+        .iter()
+        .map(|&t| (t as f32).clamp(new_start as f32, t_pitch_last as f32))
+        .collect();
+
+    let pitch_render = akima_interp(&t_pitch_f32, &pitch_f32, &t_render_clamped);
+
+    // f0_render = midi_to_hz(pitch_render)
+    let f0_render: Vec<f32> = pitch_render.iter().map(|&p| midi_to_hz(p)).collect();
 
     // ── Vocoder synthesis ──
-    let wav = models.vocoder.lock().synthesize(&padded_mel, &f0)?;
+    // Python ONNX path:
+    //   mel = mel_render [num_mels, render_frames]
+    //   mel = np.expand_dims(mel, axis=0).transpose(0, 2, 1)  → [1, render_frames, num_mels]
+    //   f0 = np.expand_dims(f0_render, axis=0)                → [1, render_frames]
+    //   output = ort_session.run(['waveform'], {'mel': mel, 'f0': f0})[0]
+    //   wav_con = output[0]  → [total_samples]
+    //
+    // Our Vocoder::synthesize expects mel [num_mels, n_frames] and transposes internally.
+    let wav_con = models.vocoder.lock().synthesize(&mel_render, &f0_render)?;
 
     stats.synthesis_ms = synth_start.elapsed().as_secs_f64() * 1000.0;
 
     // ── Step 3: Post-processing ──
     let post_start = Instant::now();
 
-    // Trim padding
-    let pad_samples = pad_frames * hop_size;
-    let new_start = pad_samples;
-    let new_end = if wav.len() > 2 * pad_samples {
-        wav.len() - pad_samples
-    } else {
-        wav.len()
-    };
+    // Cut output:
+    //   render = wav_con[int(new_start * sr):int(new_end * sr)]
+    let cut_start = (new_start * sr) as usize;
+    let cut_end = (new_end * sr) as usize;
+    let cut_start = cut_start.min(wav_con.len());
+    let cut_end = cut_end.min(wav_con.len());
 
-    let mut output = if new_start < new_end {
-        wav[new_start..new_end].to_vec()
+    let mut render = if cut_start < cut_end {
+        wav_con[cut_start..cut_end].to_vec()
     } else {
-        wav
+        wav_con.clone()
     };
-
-    // Trim to requested length
-    if length_req_samples > 0 && output.len() > length_req_samples as usize {
-        output.truncate(length_req_samples as usize);
-    }
 
     // Amplitude modulation (A flag)
     if flags.a != 0 {
-        apply_amplitude_modulation(&mut output, &f0, flags.a as f32, hop_size, sr);
+        apply_amplitude_modulation(
+            &mut render,
+            &pitch_render,
+            &t_render,
+            new_start,
+            new_end,
+            flags.a as f64,
+        );
     }
 
-    // Volume recovery (undo scale)
+    // Volume recovery: render = render / scale
     if scale > 0.0 && scale != 1.0 {
         let inv_scale = 1.0 / scale;
-        output.iter_mut().for_each(|x| *x *= inv_scale);
+        render.iter_mut().for_each(|x| *x *= inv_scale as f32);
     }
+
+    let new_max = peak(&render);
 
     // Growl effect (HG flag)
     if flags.hg > 0 {
-        output = apply_growl(&output, flags.hg as f32, config.sample_rate);
+        render = apply_growl(&render, flags.hg as f32 / 100.0, config.sample_rate);
     }
 
     // Loudness normalization (P flag)
-    if config.processing.wave_norm && flags.p > 0 {
-        output = loudness_normalize(&output, -16.0, flags.p as f32);
+    if config.processing.wave_norm {
+        if flags.p > 0 {
+            render = loudness_normalize(&render, -16.0, flags.p as f32);
+        }
     }
 
     // Peak limiting
-    let peak_val = peak(&output);
-    if peak_val > config.processing.peak_limit {
-        let gain = config.processing.peak_limit / peak_val;
-        output.iter_mut().for_each(|x| *x *= gain);
+    if new_max > config.processing.peak_limit {
+        let gain = config.processing.peak_limit / new_max;
+        render.iter_mut().for_each(|x| *x *= gain);
     }
 
     // Volume scaling
-    let volume = params.volume / 100.0;
+    let volume = params.volume as f64 / 100.0;
     if (volume - 1.0).abs() > 0.001 {
-        output.iter_mut().for_each(|x| *x *= volume);
+        render.iter_mut().for_each(|x| *x *= volume as f32);
     }
 
     stats.postprocess_ms = post_start.elapsed().as_secs_f64() * 1000.0;
-    stats.output_samples = output.len();
+    stats.output_samples = render.len();
 
-    // ── Save output ──
-    audio::save_wav(&params.output_path, &output, config.sample_rate)?;
+    // Save output
+    audio::save_wav(&params.output_path, &render, config.sample_rate)?;
 
     stats.total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
     debug!(
@@ -220,34 +364,33 @@ pub fn resample(
     Ok(stats)
 }
 
-/// Extract features: read WAV, apply HN-SEP if needed, compute mel spectrogram.
+/// Extract features — matches Python `Resampler.generate_features`.
 fn get_features(
     wav_path: &str,
     config: &Config,
     models: &Models,
     cache: &CacheManager,
     flags: &UtauFlags,
-) -> Result<(Array2<f32>, f32)> {
+) -> Result<(Array2<f32>, f64)> {
     let path = Path::new(wav_path);
     let suffix = CacheManager::flag_suffix(flags.g, flags.hb, flags.hv, flags.ht);
     let cache_path = CacheManager::cache_path(path, &suffix);
 
-    // Check cache (unless G flag forces regeneration)
+    // Check cache
     if !flags.gen_cache {
-        if let Some(cached) = cache.load_mel_cache(&cache_path) {
-            return Ok(cached);
+        if let Some((mel, scale)) = cache.load_mel_cache(&cache_path) {
+            return Ok((mel, scale as f64));
         }
     }
 
     // Read WAV
-    let mut wave = audio::read_wav(wav_path, config.sample_rate)?;
+    let wave = audio::read_wav(wav_path, config.sample_rate)?;
 
     // HN-SEP processing
-    if flags.needs_hnsep() {
+    let mut wave = if flags.needs_hnsep() {
         if let Some(ref hnsep) = models.hnsep {
             let harmonic = hnsep.lock().predict_from_audio(&wave, config.sample_rate)?;
 
-            // Mix based on Hb/Hv flags
             let noise: Vec<f32> = wave
                 .iter()
                 .zip(harmonic.iter())
@@ -257,270 +400,179 @@ fn get_features(
             let hb = flags.hb as f32 / 100.0;
             let hv = flags.hv as f32 / 100.0;
 
-            let mut mixed: Vec<f32> = noise
-                .iter()
-                .zip(harmonic.iter())
-                .map(|(&n, &h)| hb * n + hv * h)
-                .collect();
-
-            // Apply tension filter to harmonic component
             if flags.ht != 0 {
+                // Python: wave = (breath/100)*(wave - seg_output) +
+                //                pre_emphasis_base_tension((voicing/100)*seg_output, -tension/50)
+                let scaled_harmonic: Vec<f32> = harmonic.iter().map(|&h| hv * h).collect();
                 let tension_harmonic = pre_emphasis_tension(
-                    &harmonic,
-                    flags.ht as f32,
+                    &scaled_harmonic,
+                    -(flags.ht as f32) / 50.0,
                     config.sample_rate,
                     config.n_fft,
                     config.hop_size,
                 );
-                mixed = noise
+                noise
                     .iter()
                     .zip(tension_harmonic.iter())
+                    .map(|(&n, &h)| hb * n + h)
+                    .collect()
+            } else {
+                // Python: wave = (breath/100)*(wave - seg_output) + (voicing/100)*seg_output
+                noise
+                    .iter()
+                    .zip(harmonic.iter())
                     .map(|(&n, &h)| hb * n + hv * h)
-                    .collect();
+                    .collect()
             }
-
-            wave = mixed;
         } else {
             warn!("HN-SEP requested but model not loaded");
+            wave
         }
-    }
+    } else {
+        wave
+    };
 
-    // Volume scaling (prevent clipping during mel computation)
-    let peak_val = peak(&wave);
-    let scale = if peak_val > 0.5 {
-        0.5 / peak_val
+    // Python: wave = wave.squeeze(0).squeeze(0).cpu().numpy()
+    //         wave = torch.from_numpy(wave).unsqueeze(0)  # shape [1, T]
+    //         wave_max = torch.max(torch.abs(wave))
+    //         if wave_max >= 0.5:
+    //             scale = 0.5 / wave_max
+    //             wave = wave * scale
+    //         else:
+    //             scale = 1.0
+    let wave_max = peak(&wave);
+    let scale: f64 = if wave_max >= 0.5 {
+        let s = 0.5 / wave_max as f64;
+        wave.iter_mut().for_each(|x| *x *= s as f32);
+        s
     } else {
         1.0
     };
-    if scale != 1.0 {
-        wave.iter_mut().for_each(|x| *x *= scale);
-    }
 
-    // Gender/formant shift
+    // Gender / key_shift
+    // Python: mel_origin = models.mel_analyzer(wave, gender/100, 1).squeeze()
+    // mel_analyzer.__call__(y, key_shift=gender/100, speed=1.0)
+    // mel_analyzer was initialized with hop_length=origin_hop_size (128)
     let key_shift = flags.g as f32 / 100.0;
-    let speed = config.hop_size_interp as f32 / config.hop_size as f32;
 
-    // Compute mel spectrogram
-    let mel = models.mel_analyzer.mel_spectrogram(&wave, key_shift, speed);
+    // Create mel analyzer with origin_hop_size for feature extraction
+    let mel_analyzer = crate::mel::MelAnalyzer::new(
+        config.sample_rate,
+        config.n_fft,
+        config.hop_size_interp,  // origin_hop_size = 128
+        config.win_size,
+        config.num_mels,
+        config.fmin,
+        config.fmax,
+    );
 
-    // Dynamic range compression (log mel)
+    let mel = mel_analyzer.mel_spectrogram(&wave, key_shift, 1.0);
+
+    // DRC: mel_origin = dynamic_range_compression_torch(mel_origin)
     let mel = dynamic_range_compression(&mel, 1.0);
 
     // Save to cache
-    let _ = cache.save_mel_cache(&cache_path, &mel, scale);
+    let _ = cache.save_mel_cache(&cache_path, &mel, scale as f32);
 
     Ok((mel, scale))
 }
 
-/// Stretch mel spectrogram: consonant at velocity speed, vowel stretched to fill.
-fn stretch_mel(
-    mel: &Array2<f32>,
-    con_frames: usize,
-    vel_factor: f32,
-    target_frames: usize,
-    ratio: f32,
-) -> Array2<f32> {
-    let src_frames = mel.ncols();
-    let num_mels = mel.nrows();
-
-    if src_frames == 0 || target_frames == 0 {
-        return Array2::zeros((num_mels, target_frames.max(1)));
+/// Reflect index for mel loop padding.
+fn reflect_index_mel(idx: usize, len: usize) -> usize {
+    if len <= 1 {
+        return 0;
     }
-
-    // Source time axis (in hop_interp units)
-    let x_src: Vec<f32> = (0..src_frames).map(|i| i as f32).collect();
-
-    // Build target time mapping
-    let mut x_target: Vec<f32> = Vec::with_capacity(target_frames);
-
-    // Consonant region: stretched by velocity factor
-    let con_target = (con_frames as f32 * vel_factor / ratio).round() as usize;
-    let con_target = con_target.min(target_frames);
-
-    for i in 0..con_target {
-        let src_pos = i as f32 * ratio / vel_factor;
-        x_target.push(src_pos);
-    }
-
-    // Vowel region: stretch to fill remaining frames
-    let vowel_src_frames = src_frames.saturating_sub(con_frames);
-    let vowel_target_frames = target_frames.saturating_sub(con_target);
-
-    if vowel_target_frames > 0 && vowel_src_frames > 0 {
-        let vowel_ratio = vowel_src_frames as f32 / vowel_target_frames as f32;
-        for i in 0..vowel_target_frames {
-            let src_pos = con_frames as f32 + i as f32 * vowel_ratio;
-            x_target.push(src_pos);
-        }
-    }
-
-    // Fill remaining if needed
-    while x_target.len() < target_frames {
-        x_target.push((src_frames - 1) as f32);
-    }
-    x_target.truncate(target_frames);
-
-    // Interpolate each mel band
-    let mut stretched = Array2::zeros((num_mels, target_frames));
-    for mel_idx in 0..num_mels {
-        let y_src: Vec<f32> = (0..src_frames).map(|i| mel[[mel_idx, i]]).collect();
-        let y_target = interp1d(&x_src, &y_src, &x_target);
-        for (i, &v) in y_target.iter().enumerate() {
-            if i < target_frames {
-                stretched[[mel_idx, i]] = v;
-            }
-        }
-    }
-
-    stretched
-}
-
-/// Pad mel spectrogram with pad_frames of repeated edge values.
-fn pad_mel(mel: &Array2<f32>, pad_frames: usize) -> Array2<f32> {
-    let num_mels = mel.nrows();
-    let n_frames = mel.ncols();
-    let total = n_frames + 2 * pad_frames;
-
-    let mut padded = Array2::zeros((num_mels, total));
-
-    // Left pad (replicate first frame)
-    for i in 0..pad_frames {
-        for m in 0..num_mels {
-            padded[[m, i]] = mel[[m, 0]];
-        }
-    }
-
-    // Copy original
-    for i in 0..n_frames {
-        for m in 0..num_mels {
-            padded[[m, pad_frames + i]] = mel[[m, i]];
-        }
-    }
-
-    // Right pad (replicate last frame)
-    for i in 0..pad_frames {
-        for m in 0..num_mels {
-            padded[[m, pad_frames + n_frames + i]] = mel[[m, n_frames.saturating_sub(1)]];
-        }
-    }
-
-    padded
-}
-
-/// Loop-pad mel spectrogram for loop mode (He flag).
-fn loop_pad_mel(mel: &Array2<f32>, target_samples: usize, hop_size: usize) -> Array2<f32> {
-    let target_frames = (target_samples as f32 / hop_size as f32).ceil() as usize + 1;
-    let src_frames = mel.ncols();
-
-    if src_frames == 0 || target_frames <= src_frames {
-        return mel.clone();
-    }
-
-    let num_mels = mel.nrows();
-    let mut looped = Array2::zeros((num_mels, target_frames));
-
-    for i in 0..target_frames {
-        // Reflect-pad: 0,1,2,...,n-1,n-2,...,1,0,1,...
-        let period = 2 * src_frames.max(1) - 2;
-        let pos = if period > 0 {
-            let p = i % period;
-            if p < src_frames {
-                p
-            } else {
-                2 * (src_frames - 1) - p
-            }
-        } else {
-            0
-        };
-
-        for m in 0..num_mels {
-            looped[[m, i]] = mel[[m, pos]];
-        }
-    }
-
-    looped
-}
-
-/// Build F0 curve from MIDI note + pitchbend.
-fn build_f0_curve(
-    midi_note: f32,
-    pitchbend_cents: &[i32],
-    t_offset: f32,
-    total_frames: usize,
-    pad_frames: usize,
-    hop_size: usize,
-    sr: f32,
-    tempo: f32,
-) -> Vec<f32> {
-    // Pitchbend resolution: 5ms per point (UTAU standard)
-    let pb_interval_ms = if tempo > 0.0 {
-        // tempo is in BPM, UTAU pitch tick = 5ms
-        5.0
+    let period = 2 * (len - 1);
+    let idx = idx % period;
+    if idx < len {
+        idx
     } else {
-        5.0
-    };
-    let pb_interval_samples = pb_interval_ms / 1000.0 * sr;
-
-    // Frame time positions (in samples)
-    let frame_times: Vec<f32> = (0..total_frames)
-        .map(|i| {
-            let frame_in_content = i as i64 - pad_frames as i64;
-            frame_in_content as f32 * hop_size as f32
-        })
-        .collect();
-
-    if pitchbend_cents.is_empty() {
-        // Constant pitch
-        let midi_final = midi_note + t_offset / 100.0;
-        let hz = midi_to_hz(midi_final);
-        return vec![hz; total_frames];
+        period - idx
     }
-
-    // Pitchbend time positions
-    let pb_times: Vec<f32> = (0..pitchbend_cents.len())
-        .map(|i| i as f32 * pb_interval_samples)
-        .collect();
-
-    let pb_midi: Vec<f32> = pitchbend_cents
-        .iter()
-        .map(|&c| midi_note + c as f32 / 100.0 + t_offset / 100.0)
-        .collect();
-
-    // Interpolate to frame times using Akima
-    let midi_interp = akima_interp(&pb_times, &pb_midi, &frame_times);
-
-    // Convert to Hz
-    midi_interp.iter().map(|&m| midi_to_hz(m)).collect()
 }
 
-/// Apply amplitude modulation based on pitch change rate (A flag).
+/// Apply amplitude modulation (A flag) — matches Python exactly.
+///
+/// Python:
+///   pitch_derivative = np.gradient(pitch_render, t)
+///   gain = 5**((10**-4) * A * pitch_derivative)
+///   interpolated_gain = np.interp(audio_time, t, gain)
+///   render = render * interpolated_gain
 fn apply_amplitude_modulation(
     audio: &mut [f32],
-    f0: &[f32],
-    strength: f32,
-    hop_size: usize,
-    _sr: f32,
+    pitch_render: &[f32],
+    t_mel: &[f64],
+    new_start: f64,
+    new_end: f64,
+    a_flag: f64,
 ) {
-    if f0.len() < 2 || strength.abs() < 0.01 {
+    if pitch_render.len() < 2 || t_mel.len() < 2 || a_flag.abs() < 0.01 {
         return;
     }
 
-    // Compute pitch change rate (derivative of log f0)
-    let mut rates: Vec<f32> = Vec::with_capacity(f0.len());
-    rates.push(0.0);
-    for i in 1..f0.len() {
-        if f0[i] > 0.0 && f0[i - 1] > 0.0 {
-            rates.push(((f0[i] / f0[i - 1]).ln()).abs());
-        } else {
-            rates.push(0.0);
+    // np.gradient(pitch_render, t)
+    let n = pitch_render.len();
+    let mut pitch_derivative = vec![0.0f64; n];
+
+    // Forward difference for first point
+    if n >= 2 {
+        let dt = t_mel[1] - t_mel[0];
+        if dt.abs() > 1e-12 {
+            pitch_derivative[0] = (pitch_render[1] as f64 - pitch_render[0] as f64) / dt;
+        }
+    }
+    // Central differences for interior
+    for i in 1..n - 1 {
+        let dt = t_mel[i + 1] - t_mel[i - 1];
+        if dt.abs() > 1e-12 {
+            pitch_derivative[i] = (pitch_render[i + 1] as f64 - pitch_render[i - 1] as f64) / dt;
+        }
+    }
+    // Backward difference for last point
+    if n >= 2 {
+        let dt = t_mel[n - 1] - t_mel[n - 2];
+        if dt.abs() > 1e-12 {
+            pitch_derivative[n - 1] = (pitch_render[n - 1] as f64 - pitch_render[n - 2] as f64) / dt;
         }
     }
 
-    // Apply gain modulation
-    let factor = strength / 100.0;
+    // gain = 5 ** (1e-4 * A * pitch_derivative)
+    let gain_at_mel: Vec<f64> = pitch_derivative
+        .iter()
+        .map(|&d| 5.0f64.powf(1e-4 * a_flag * d))
+        .collect();
+
+    // Interpolate gain to audio sample positions
+    let num_samples = audio.len();
+    let t_mel_f32: Vec<f32> = t_mel.iter().map(|&t| t as f32).collect();
+    let gain_f32: Vec<f32> = gain_at_mel.iter().map(|&g| g as f32).collect();
+
     for (i, sample) in audio.iter_mut().enumerate() {
-        let frame_idx = (i / hop_size).min(rates.len() - 1);
-        let gain = 1.0 + factor * rates[frame_idx];
+        let t = new_start as f32 + (new_end as f32 - new_start as f32) * i as f32 / num_samples as f32;
+        // Linear interp of gain
+        let gain = interp1d_single(&t_mel_f32, &gain_f32, t);
         *sample *= gain;
     }
+}
+
+/// Single-point linear interpolation with edge clamping.
+fn interp1d_single(x: &[f32], y: &[f32], t: f32) -> f32 {
+    if x.is_empty() || y.is_empty() {
+        return 1.0;
+    }
+    if t <= x[0] {
+        return y[0];
+    }
+    if t >= *x.last().unwrap() {
+        return *y.last().unwrap();
+    }
+
+    let idx = match x.binary_search_by(|v| v.partial_cmp(&t).unwrap()) {
+        Ok(i) => return y[i],
+        Err(i) => i.saturating_sub(1),
+    };
+
+    let idx = idx.min(x.len() - 2);
+    let frac = (t - x[idx]) / (x[idx + 1] - x[idx]);
+    y[idx] + frac * (y[idx + 1] - y[idx])
 }

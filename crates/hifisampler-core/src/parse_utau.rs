@@ -59,56 +59,76 @@ pub fn hz_to_midi(hz: f32) -> f32 {
 
 /// Decode UTAU pitchbend string.
 ///
-/// Format: Base64 encoded, each 2 chars = 12-bit signed integer (cents offset).
-/// '#' separates RLE segments: `#<count>#` means repeat previous value.
+/// Format: Base64-encoded 12-bit signed integers, with '#' as RLE separator.
+///
+/// Python reference (`pitch_string_to_cents`):
+///   pitch = x.split('#')
+///   for i in range(0, len(pitch), 2):
+///       p = pitch[i:i+2]
+///       if len(p) == 2:
+///           pitch_str, rle = p
+///           res.extend(to_int12_stream(pitch_str))
+///           res.extend([res[-1]] * int(rle))
+///       else:
+///           res.extend(to_int12_stream(p[0]))
+///   return np.concatenate([res, np.zeros(1)])
 pub fn decode_pitchbend(pitch_str: &str) -> Vec<i32> {
     const BASE64_CHARS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-    if pitch_str.is_empty() || pitch_str == "AA" {
-        return Vec::new();
+    if pitch_str.is_empty() {
+        return vec![0]; // trailing zero only
     }
 
-    let mut result: Vec<i32> = Vec::new();
-    let segments: Vec<&str> = pitch_str.split('#').collect();
-
-    let mut i = 0;
-    while i < segments.len() {
-        let seg = segments[i];
-        if seg.is_empty() {
-            i += 1;
-            continue;
-        }
-
-        // Check if this is an RLE count
-        if i > 0 && segments[i - 1].is_empty() {
-            // Previous was '#', so this is a repeat count
-            if let Ok(count) = seg.parse::<usize>() {
-                let last_val = result.last().copied().unwrap_or(0);
-                for _ in 0..count.saturating_sub(1) {
-                    result.push(last_val);
-                }
-                i += 1;
-                continue;
-            }
-        }
-
-        // Decode Base64 pairs
+    // to_int12_stream: decode base64 pairs into 12-bit signed ints
+    let decode_b64_stream = |seg: &str| -> Vec<i32> {
         let chars: Vec<char> = seg.chars().collect();
+        let mut out = Vec::new();
         let mut j = 0;
         while j + 1 < chars.len() {
             let c1 = BASE64_CHARS.find(chars[j]).unwrap_or(0) as i32;
             let c2 = BASE64_CHARS.find(chars[j + 1]).unwrap_or(0) as i32;
-            let mut val = c1 * 64 + c2;
-            // Convert from 12-bit unsigned to signed
-            if val >= 2048 {
-                val -= 4096;
-            }
-            result.push(val);
+            let uint12 = (c1 << 6) | c2;
+            // Two's complement for 12-bit
+            let val = if (uint12 >> 11) & 1 == 1 {
+                uint12 - 4096
+            } else {
+                uint12
+            };
+            out.push(val);
             j += 2;
         }
+        out
+    };
 
-        i += 1;
+    let segments: Vec<&str> = pitch_str.split('#').collect();
+    let mut result: Vec<i32> = Vec::new();
+
+    // Process pairs: (data_string, rle_count), last may be unpaired
+    let mut i = 0;
+    while i < segments.len() {
+        if i + 1 < segments.len() {
+            // Pair: (pitch_str, rle)
+            let pitch_data = segments[i];
+            let rle_str = segments[i + 1];
+
+            result.extend(decode_b64_stream(pitch_data));
+
+            if let Ok(rle_count) = rle_str.parse::<usize>() {
+                let last_val = result.last().copied().unwrap_or(0);
+                for _ in 0..rle_count {
+                    result.push(last_val);
+                }
+            }
+            i += 2;
+        } else {
+            // Last unpaired segment
+            result.extend(decode_b64_stream(segments[i]));
+            i += 1;
+        }
     }
+
+    // Append trailing zero (matching Python: np.concatenate([res, np.zeros(1)]))
+    result.push(0);
 
     result
 }
@@ -274,13 +294,21 @@ mod tests {
 
     #[test]
     fn test_decode_pitchbend() {
-        // "AA" = 0
+        // "AA" = decoded [0] + trailing zero = [0, 0]
         let result = decode_pitchbend("AA");
-        assert!(result.is_empty());
-
-        // Basic decoding
-        let result = decode_pitchbend("AAAA");
         assert_eq!(result, vec![0, 0]);
+
+        // Basic decoding: "AAAA" = two zeros + trailing zero = [0, 0, 0]
+        let result = decode_pitchbend("AAAA");
+        assert_eq!(result, vec![0, 0, 0]);
+
+        // Python reference: 'AAAAAA#3#BABA' → [0,0,0, 0,0,0, 64,64, 0] (len=9, includes trailing zero)
+        let result = decode_pitchbend("AAAAAA#3#BABA");
+        assert_eq!(result, vec![0, 0, 0, 0, 0, 0, 64, 64, 0]);
+
+        // 'BABA' → [64, 64, 0] (decoded + trailing zero)
+        let result = decode_pitchbend("BABA");
+        assert_eq!(result, vec![64, 64, 0]);
     }
 
     #[test]

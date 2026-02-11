@@ -102,104 +102,174 @@ fn resample_audio(input: &[f32], from_sr: u32, to_sr: u32) -> Result<Vec<f32>> {
     Ok(output.into_iter().next().unwrap())
 }
 
-/// Dynamic range compression: log1p(x * C) / log1p(C)
-/// Matches Python's dynamic_range_compression.
+/// Dynamic range compression: `log(clamp(x, min=1e-9) * C)`
+/// Matches Python's `dynamic_range_compression_torch(x, C=1, clip_val=1e-9)`.
 pub fn dynamic_range_compression(x: &[f32], c: f32) -> Vec<f32> {
-    let log_c = (1.0 + c).ln();
     x.iter()
-        .map(|&v| (1.0 + v * c).ln() / log_c)
-        .collect()
-}
-
-/// Dynamic range decompression (inverse of compression).
-pub fn dynamic_range_decompression(x: &[f32], c: f32) -> Vec<f32> {
-    let log_c = (1.0 + c).ln();
-    x.iter()
-        .map(|&v| ((v * log_c).exp() - 1.0) / c)
+        .map(|&v| (v.max(1e-9) * c).ln())
         .collect()
 }
 
 /// Pre-emphasis base tension filter.
-/// Applies a frequency-dependent gain tilt in the STFT domain.
+/// Matches Python's `pre_emphasis_base_tension(wave, b)` exactly.
 ///
-/// tension > 0: boost high frequencies (tighter sound)
-/// tension < 0: boost low frequencies (looser sound)
-pub fn pre_emphasis_tension(audio: &[f32], tension: f32, _sr: u32, n_fft: usize, hop_size: usize) -> Vec<f32> {
-    if tension.abs() < 0.01 {
+/// Python logic:
+///   spec = stft(wave)
+///   spec_amp = abs(spec)
+///   spec_phase = atan2(spec.imag, spec.real)
+///   spec_amp_db = log(clamp(spec_amp, 1e-9))
+///   x0 = fft_bin / ((sr/2) / 1500)
+///   freq_filter = (-b / x0) * arange(fft_bin) + b
+///   spec_amp_db += clamp(freq_filter, -2, 2)
+///   spec_amp = exp(spec_amp_db)
+///   filtered = istft(spec_amp * exp(j*phase))
+///   filtered *= (original_max / filtered_max) * (clip(b/(-15), 0, 0.33) + 1)
+pub fn pre_emphasis_tension(audio: &[f32], b: f32, sr: u32, n_fft: usize, hop_size: usize) -> Vec<f32> {
+    if b.abs() < 0.01 {
         return audio.to_vec();
     }
+
+    let original_length = audio.len();
+
+    // Pad to be divisible by hop_size (matching Python)
+    let pad_length = (hop_size - (original_length % hop_size)) % hop_size;
+    let mut padded = audio.to_vec();
+    padded.resize(original_length + pad_length, 0.0);
+
+    let win_size = n_fft; // Python: win_length=CONFIG.win_size (=n_fft=2048)
 
     let mut planner = FftPlanner::new();
     let fft = planner.plan_fft_forward(n_fft);
     let ifft = planner.plan_fft_inverse(n_fft);
 
-    // Create Hann window
-    let window: Vec<f32> = (0..n_fft)
-        .map(|i| 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / n_fft as f32).cos()))
+    // Create Hann window (matching torch.hann_window)
+    let window: Vec<f32> = (0..win_size)
+        .map(|i| 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / win_size as f32).cos()))
         .collect();
 
-    // Pad audio
-    let pad = n_fft / 2;
-    let mut padded = vec![0.0f32; pad];
-    padded.extend_from_slice(audio);
-    padded.resize(padded.len() + pad, 0.0);
-
-    let output_len = audio.len();
-    let mut output = vec![0.0f32; padded.len()];
-    let mut norm = vec![0.0f32; padded.len()];
-
-    // Frequency-dependent gain filter
     let freq_bins = n_fft / 2 + 1;
-    let x0 = freq_bins as f32;
-    let gains: Vec<f32> = (0..freq_bins)
-        .map(|i| {
-            let gain_db = (-tension / 50.0 / x0) * i as f32 + tension / 50.0;
-            let gain_db = gain_db.clamp(-2.0, 2.0);
-            10.0f32.powf(gain_db / 20.0) // dB to linear
-        })
+
+    // Python: x0 = fft_bin / ((sample_rate / 2) / 1500)
+    let x0 = freq_bins as f32 / ((sr as f32 / 2.0) / 1500.0);
+
+    // freq_filter = (-b / x0) * arange(fft_bin) + b, clamped to [-2, 2]
+    let freq_filter: Vec<f32> = (0..freq_bins)
+        .map(|i| ((-b / x0) * i as f32 + b).clamp(-2.0, 2.0))
         .collect();
 
-    // STFT → apply gain → ISTFT (overlap-add)
-    let mut pos = 0;
-    while pos + n_fft <= padded.len() {
-        // Window the frame
-        let mut frame: Vec<Complex<f32>> = (0..n_fft)
-            .map(|i| Complex::new(padded[pos + i] * window[i], 0.0))
-            .collect();
-
-        // FFT
-        fft.process(&mut frame);
-
-        // Apply gain
-        for i in 0..freq_bins {
-            frame[i] *= gains[i];
-            if i > 0 && i < n_fft - i {
-                frame[n_fft - i] *= gains[i];
-            }
-        }
-
-        // IFFT
-        ifft.process(&mut frame);
-
-        // Overlap-add with normalization
-        let inv_n = 1.0 / n_fft as f32;
-        for i in 0..n_fft {
-            output[pos + i] += frame[i].re * inv_n * window[i];
-            norm[pos + i] += window[i] * window[i];
-        }
-
-        pos += hop_size;
+    // Python uses torch.stft (center=True by default, with n_fft/2 reflect pad)
+    // Apply center padding
+    let center_pad = n_fft / 2;
+    let mut center_padded = Vec::with_capacity(center_pad + padded.len() + center_pad);
+    // Reflect pad left
+    for i in (1..=center_pad).rev() {
+        let idx = if i < padded.len() { i } else { padded.len() - 1 };
+        center_padded.push(padded[idx]);
+    }
+    center_padded.extend_from_slice(&padded);
+    // Reflect pad right
+    for i in 1..=center_pad {
+        let idx = if padded.len() > i { padded.len() - 1 - i } else { 0 };
+        center_padded.push(padded[idx]);
     }
 
-    // Normalize
+    // STFT
+    let n_frames = (center_padded.len() - win_size) / hop_size + 1;
+    let mut stft_complex: Vec<Vec<Complex<f32>>> = Vec::with_capacity(n_frames);
+
+    for frame_idx in 0..n_frames {
+        let start = frame_idx * hop_size;
+        let mut frame: Vec<Complex<f32>> = (0..n_fft)
+            .map(|i| {
+                let sample = if i < win_size && start + i < center_padded.len() {
+                    center_padded[start + i] * window[i]
+                } else {
+                    0.0
+                };
+                Complex::new(sample, 0.0)
+            })
+            .collect();
+
+        fft.process(&mut frame);
+        stft_complex.push(frame[..freq_bins].to_vec());
+    }
+
+    // Apply tension filter in log domain (matching Python exactly)
+    let mut filtered_stft: Vec<Vec<Complex<f32>>> = Vec::with_capacity(n_frames);
+    for frame in &stft_complex {
+        let mut new_frame = Vec::with_capacity(freq_bins);
+        for f in 0..freq_bins {
+            let spec = frame[f];
+            let amp = spec.norm();
+            let phase = spec.im.atan2(spec.re);
+
+            // spec_amp_db = log(clamp(amp, 1e-9))
+            let amp_db = amp.max(1e-9).ln();
+
+            // spec_amp_db += freq_filter
+            let amp_db = amp_db + freq_filter[f];
+
+            // spec_amp = exp(spec_amp_db)
+            let new_amp = amp_db.exp();
+
+            // Reconstruct complex: new_amp * exp(j * phase)
+            new_frame.push(Complex::new(new_amp * phase.cos(), new_amp * phase.sin()));
+        }
+        filtered_stft.push(new_frame);
+    }
+
+    // ISTFT (overlap-add with Griffin-Lim style normalization)
+    let total_len = (n_frames - 1) * hop_size + n_fft;
+    let mut output = vec![0.0f32; total_len];
+    let mut norm = vec![0.0f32; total_len];
+    let inv_n = 1.0 / n_fft as f32;
+
+    for (idx, frame) in filtered_stft.iter().enumerate() {
+        let pos = idx * hop_size;
+
+        // Reconstruct full spectrum (mirror conjugate for negative frequencies)
+        let mut full: Vec<Complex<f32>> = frame.clone();
+        for i in (1..n_fft / 2).rev() {
+            full.push(frame[i].conj());
+        }
+        full.resize(n_fft, Complex::new(0.0, 0.0));
+
+        ifft.process(&mut full);
+
+        for i in 0..win_size {
+            if pos + i < output.len() {
+                output[pos + i] += full[i].re * inv_n * window[i];
+                norm[pos + i] += window[i] * window[i];
+            }
+        }
+    }
+
+    // Normalize overlap-add
     for i in 0..output.len() {
         if norm[i] > 1e-8 {
             output[i] /= norm[i];
         }
     }
 
-    // Extract original length
-    output[pad..pad + output_len].to_vec()
+    // Remove center padding, get padded-length signal
+    let filtered_padded: Vec<f32> = output[center_pad..center_pad + padded.len()].to_vec();
+
+    // Amplitude normalization (matching Python):
+    // filtered_wave *= (original_max / filtered_max) * (clip(b/(-15), 0, 0.33) + 1)
+    let original_max = peak(&padded);
+    let filtered_max = peak(&filtered_padded);
+
+    let amp_correction = if filtered_max > 1e-8 {
+        (original_max / filtered_max) * ((b / -15.0).clamp(0.0, 0.33) + 1.0)
+    } else {
+        1.0
+    };
+
+    // Return only original_length samples
+    filtered_padded[..original_length]
+        .iter()
+        .map(|&x| x * amp_correction)
+        .collect()
 }
 
 /// Compute RMS of a signal.

@@ -14,7 +14,7 @@ use axum::{
     Router,
     extract::State,
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response, Redirect},
     routing::{get, post, put},
 };
 use clap::Parser;
@@ -118,14 +118,12 @@ async fn main() -> Result<()> {
 
 /// GET / - Health check endpoint.
 /// Uses AtomicBool — never blocks on inference.
-async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
+async fn health_check(State(state): State<AppState>) -> Response {
     if state.ready.load(Ordering::Relaxed) {
-        (
-            StatusCode::OK,
-            "HiFiSampler Server is ready. Visit /ui for the web interface.",
-        )
+        // Server is healthy — redirect the browser to the WebUI
+        Redirect::temporary("/ui").into_response()
     } else {
-        (StatusCode::SERVICE_UNAVAILABLE, "Server not ready")
+        (StatusCode::SERVICE_UNAVAILABLE, "Server not ready").into_response()
     }
 }
 

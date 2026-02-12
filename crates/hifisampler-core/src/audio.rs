@@ -426,45 +426,86 @@ pub fn interp1d(x_old: &[f32], y_old: &[f32], x_new: &[f32]) -> Vec<f32> {
 }
 
 /// Akima interpolation for smoother curves (used for pitch bending).
+/// Uses f64 internally to match SciPy's Akima1DInterpolator precision.
 pub fn akima_interp(x_old: &[f32], y_old: &[f32], x_new: &[f32]) -> Vec<f32> {
+    let x64: Vec<f64> = x_old.iter().map(|&v| v as f64).collect();
+    let y64: Vec<f64> = y_old.iter().map(|&v| v as f64).collect();
+    let xn64: Vec<f64> = x_new.iter().map(|&v| v as f64).collect();
+    akima_interp_f64(&x64, &y64, &xn64)
+        .iter()
+        .map(|&v| v as f32)
+        .collect()
+}
+
+/// Akima interpolation in f64 — exact match with SciPy `Akima1DInterpolator`.
+///
+/// Boundary extension follows SciPy `_cubic.py`:
+///   m[1] = 2*m[2] - m[3]
+///   m[0] = 2*m[1] - m[2]
+///   m[-2] = 2*m[-3] - m[-4]
+///   m[-1] = 2*m[-2] - m[-3]
+pub fn akima_interp_f64(x_old: &[f64], y_old: &[f64], x_new: &[f64]) -> Vec<f64> {
     let n = x_old.len();
-    if n < 3 {
-        return interp1d(x_old, y_old, x_new);
+    if n < 2 {
+        return vec![y_old.first().copied().unwrap_or(0.0); x_new.len()];
+    }
+    if n == 2 {
+        // Linear interpolation
+        return x_new
+            .iter()
+            .map(|&x| {
+                if x <= x_old[0] { return y_old[0]; }
+                if x >= x_old[1] { return y_old[1]; }
+                let t = (x - x_old[0]) / (x_old[1] - x_old[0]);
+                y_old[0] + t * (y_old[1] - y_old[0])
+            })
+            .collect();
     }
 
-    // Compute slopes
-    let mut m: Vec<f32> = Vec::with_capacity(n - 1);
-    for i in 0..n - 1 {
-        m.push((y_old[i + 1] - y_old[i]) / (x_old[i + 1] - x_old[i]));
+    // Compute slopes between data points: m has (n-1) elements
+    let nm = n - 1;
+    let mut slopes = Vec::with_capacity(nm);
+    for i in 0..nm {
+        slopes.push((y_old[i + 1] - y_old[i]) / (x_old[i + 1] - x_old[i]));
     }
 
-    // Extend slopes at boundaries
-    let m_ext: Vec<f32> = {
-        let mut ext = Vec::with_capacity(n + 3);
-        ext.push(2.0 * m[0] - m.get(1).copied().unwrap_or(m[0]));
-        ext.push(2.0 * m[0] - m.get(0).copied().unwrap_or(m[0]));
-        ext.extend_from_slice(&m);
-        let last = *m.last().unwrap();
-        let prev = m.get(m.len().wrapping_sub(2)).copied().unwrap_or(last);
-        ext.push(2.0 * last - prev);
-        ext.push(2.0 * last - (2.0 * last - prev));
-        ext
-    };
+    // Build extended slope array with 2 boundary extensions on each side
+    // Total length = nm + 4 = (n-1) + 4 = n + 3
+    // Layout: [ext0, ext1, slopes[0], slopes[1], ..., slopes[nm-1], ext_r0, ext_r1]
+    //          idx:  0      1         2          3                   nm+1    nm+2    nm+3
+    // SciPy convention: actual slopes are at indices 2..(nm+2) exclusive
+    let mut m_ext: Vec<f64> = Vec::with_capacity(nm + 4);
+    // Left boundary: m[1] = 2*m[2] - m[3], m[0] = 2*m[1] - m[2]
+    let left1 = 2.0 * slopes[0] - slopes.get(1).copied().unwrap_or(slopes[0]);
+    let left0 = 2.0 * left1 - slopes[0];
+    m_ext.push(left0);
+    m_ext.push(left1);
+    m_ext.extend_from_slice(&slopes);
+    // Right boundary: m[-2] = 2*m[-3] - m[-4], m[-1] = 2*m[-2] - m[-3]
+    let last = slopes[nm - 1];
+    let prev = if nm >= 2 { slopes[nm - 2] } else { last };
+    let right0 = 2.0 * last - prev;
+    let right1 = 2.0 * right0 - last;
+    m_ext.push(right0);
+    m_ext.push(right1);
 
-    // Akima weights
-    let mut t_vals: Vec<f32> = Vec::with_capacity(n);
+    // Compute Akima derivative at each data point
+    // For point i, the relevant m_ext indices are (i, i+1, i+2, i+3)
+    // w1 = |m[i+3] - m[i+2]|, w2 = |m[i+1] - m[i]|
+    // t[i] = (w1*m[i+1] + w2*m[i+2]) / (w1+w2)  if w1+w2 > 0
+    //      = 0.5*(m[i+1] + m[i+2])               otherwise
+    let mut t_vals: Vec<f64> = Vec::with_capacity(n);
     for i in 0..n {
-        let idx = i + 2;
-        let w1 = (m_ext[idx + 1] - m_ext[idx]).abs();
-        let w2 = (m_ext[idx - 1] - m_ext[idx - 2]).abs();
-        if w1 + w2 > 1e-10 {
-            t_vals.push((w1 * m_ext[idx - 1] + w2 * m_ext[idx]) / (w1 + w2));
+        let w1 = (m_ext[i + 3] - m_ext[i + 2]).abs();
+        let w2 = (m_ext[i + 1] - m_ext[i]).abs();
+        if w1 + w2 > 1e-30 {
+            t_vals.push((w1 * m_ext[i + 1] + w2 * m_ext[i + 2]) / (w1 + w2));
         } else {
-            t_vals.push(0.5 * (m_ext[idx - 1] + m_ext[idx]));
+            t_vals.push(0.5 * (m_ext[i + 1] + m_ext[i + 2]));
         }
     }
 
-    // Interpolate
+    // Evaluate cubic Hermite on each query point
     x_new
         .iter()
         .map(|&x| {

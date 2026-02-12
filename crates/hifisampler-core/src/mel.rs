@@ -259,6 +259,10 @@ fn compute_stft_magnitude(
 }
 
 /// Reflect-pad audio (matching PyTorch F.pad mode='reflect').
+///
+/// PyTorch F.pad(x, (pad_left, pad_right), mode='reflect') for x=[a0,a1,a2,a3,a4]:
+///   pad_left=3 → [a3, a2, a1, | a0, a1, a2, a3, a4]
+///   pad_right=2 → [a0, a1, a2, a3, a4, | a3, a2]
 fn reflect_pad(audio: &[f32], pad_left: usize, pad_right: usize) -> Vec<f32> {
     let n = audio.len();
     if n <= 1 {
@@ -267,14 +271,16 @@ fn reflect_pad(audio: &[f32], pad_left: usize, pad_right: usize) -> Vec<f32> {
 
     let mut padded = Vec::with_capacity(pad_left + n + pad_right);
 
-    for i in (0..pad_left).rev() {
-        padded.push(audio[reflect_index(pad_left - i, n)]);
+    // Left pad: indices pad_left, pad_left-1, ..., 1 (reflected from start)
+    for i in (1..=pad_left).rev() {
+        padded.push(audio[reflect_index(i, n)]);
     }
 
     padded.extend_from_slice(audio);
 
+    // Right pad: indices n, n+1, ..., n+pad_right-1 (reflected from end)
     for i in 1..=pad_right {
-        padded.push(audio[reflect_index(n - 1 - i, n)]);
+        padded.push(audio[reflect_index(n - 1 + i, n)]);
     }
 
     padded

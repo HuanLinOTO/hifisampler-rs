@@ -49,6 +49,11 @@ pub fn midi_to_hz(midi: f32) -> f32 {
     440.0 * 2.0f32.powf((midi - 69.0) / 12.0)
 }
 
+/// MIDI number to frequency in Hz — f64 version matching Python `np.exp2`.
+pub fn midi_to_hz_f64(midi: f64) -> f64 {
+    440.0 * 2.0f64.powf((midi - 69.0) / 12.0)
+}
+
 /// Hz to MIDI number.
 pub fn hz_to_midi(hz: f32) -> f32 {
     if hz <= 0.0 {

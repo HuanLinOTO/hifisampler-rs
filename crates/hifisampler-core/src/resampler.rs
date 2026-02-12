@@ -3,14 +3,14 @@
 //! All time-axis arithmetic, interpolation calls, and mel/f0 tensor shapes
 //! are ported line-by-line from the Python implementation.
 
-use crate::audio::{self, interp1d, akima_interp, loudness_normalize, peak, pre_emphasis_tension};
+use crate::audio::{self, interp1d, akima_interp_f64, loudness_normalize, peak, pre_emphasis_tension};
 use crate::cache::CacheManager;
 use crate::config::Config;
 use crate::growl::apply_growl;
 use crate::mel::dynamic_range_compression;
 use crate::models::Models;
 use crate::parse_utau::{
-    decode_pitchbend, midi_to_hz, note_to_midi, parse_flags, UtauFlags, UtauParams,
+    decode_pitchbend, midi_to_hz_f64, note_to_midi, parse_flags, UtauFlags, UtauParams,
 };
 use anyhow::Result;
 use ndarray::Array2;
@@ -260,21 +260,20 @@ pub fn resample(
         .map(|i| 60.0 * i as f64 / (tempo * 96.0) + new_start)
         .collect();
 
-    // Akima interpolation of pitch
-    let t_pitch_f32: Vec<f32> = t_pitch.iter().map(|&t| t as f32).collect();
-    let pitch_f32: Vec<f32> = pitch_data.iter().map(|&p| p as f32).collect();
-
-    // pitch_render = pitch_interp(clip(t, new_start, t_pitch[-1]))
+    // Akima interpolation of pitch — use f64 throughout to match Python/SciPy precision
+    // pitch_interp = interp.Akima1DInterpolator(t_pitch, pitch)
+    // pitch_render = pitch_interp(np.clip(t, new_start, t_pitch[-1]))
     let t_pitch_last = t_pitch.last().copied().unwrap_or(0.0);
-    let t_render_clamped: Vec<f32> = t_render
+    let t_render_clamped: Vec<f64> = t_render
         .iter()
-        .map(|&t| (t as f32).clamp(new_start as f32, t_pitch_last as f32))
+        .map(|&t| t.clamp(new_start, t_pitch_last))
         .collect();
 
-    let pitch_render = akima_interp(&t_pitch_f32, &pitch_f32, &t_render_clamped);
+    let pitch_render_f64 = akima_interp_f64(&t_pitch, &pitch_data, &t_render_clamped);
 
-    // f0_render = midi_to_hz(pitch_render)
-    let f0_render: Vec<f32> = pitch_render.iter().map(|&p| midi_to_hz(p)).collect();
+    // f0_render = midi_to_hz(pitch_render) — compute in f64, then convert to f32 for ONNX
+    let f0_render: Vec<f32> = pitch_render_f64.iter().map(|&p| midi_to_hz_f64(p) as f32).collect();
+    let pitch_render: Vec<f32> = pitch_render_f64.iter().map(|&p| p as f32).collect();
 
     // ── Vocoder synthesis ──
     // Python ONNX path:

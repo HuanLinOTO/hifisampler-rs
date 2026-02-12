@@ -6,7 +6,9 @@
 use anyhow::{Context, Result};
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use num_complex::Complex;
-use rubato::{SincFixedIn, SincInterpolationType, SincInterpolationParameters, WindowFunction, Resampler};
+use rubato::{
+    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+};
 use rustfft::FftPlanner;
 use std::path::Path;
 
@@ -30,10 +32,7 @@ pub fn read_wav(path: impl AsRef<Path>, target_sr: u32) -> Result<Vec<f32>> {
                 .map(|s| s.unwrap() as f32 / max_val)
                 .collect()
         }
-        SampleFormat::Float => reader
-            .into_samples::<f32>()
-            .map(|s| s.unwrap())
-            .collect(),
+        SampleFormat::Float => reader.into_samples::<f32>().map(|s| s.unwrap()).collect(),
     };
 
     // Convert to mono by averaging channels
@@ -105,9 +104,7 @@ fn resample_audio(input: &[f32], from_sr: u32, to_sr: u32) -> Result<Vec<f32>> {
 /// Dynamic range compression: `log(clamp(x, min=1e-9) * C)`
 /// Matches Python's `dynamic_range_compression_torch(x, C=1, clip_val=1e-9)`.
 pub fn dynamic_range_compression(x: &[f32], c: f32) -> Vec<f32> {
-    x.iter()
-        .map(|&v| (v.max(1e-9) * c).ln())
-        .collect()
+    x.iter().map(|&v| (v.max(1e-9) * c).ln()).collect()
 }
 
 /// Pre-emphasis base tension filter.
@@ -124,7 +121,13 @@ pub fn dynamic_range_compression(x: &[f32], c: f32) -> Vec<f32> {
 ///   spec_amp = exp(spec_amp_db)
 ///   filtered = istft(spec_amp * exp(j*phase))
 ///   filtered *= (original_max / filtered_max) * (clip(b/(-15), 0, 0.33) + 1)
-pub fn pre_emphasis_tension(audio: &[f32], b: f32, sr: u32, n_fft: usize, hop_size: usize) -> Vec<f32> {
+pub fn pre_emphasis_tension(
+    audio: &[f32],
+    b: f32,
+    sr: u32,
+    n_fft: usize,
+    hop_size: usize,
+) -> Vec<f32> {
     if b.abs() < 0.01 {
         return audio.to_vec();
     }
@@ -163,13 +166,21 @@ pub fn pre_emphasis_tension(audio: &[f32], b: f32, sr: u32, n_fft: usize, hop_si
     let mut center_padded = Vec::with_capacity(center_pad + padded.len() + center_pad);
     // Reflect pad left
     for i in (1..=center_pad).rev() {
-        let idx = if i < padded.len() { i } else { padded.len() - 1 };
+        let idx = if i < padded.len() {
+            i
+        } else {
+            padded.len() - 1
+        };
         center_padded.push(padded[idx]);
     }
     center_padded.extend_from_slice(&padded);
     // Reflect pad right
     for i in 1..=center_pad {
-        let idx = if padded.len() > i { padded.len() - 1 - i } else { 0 };
+        let idx = if padded.len() > i {
+            padded.len() - 1 - i
+        } else {
+            0
+        };
         center_padded.push(padded[idx]);
     }
 
@@ -454,8 +465,12 @@ pub fn akima_interp_f64(x_old: &[f64], y_old: &[f64], x_new: &[f64]) -> Vec<f64>
         return x_new
             .iter()
             .map(|&x| {
-                if x <= x_old[0] { return y_old[0]; }
-                if x >= x_old[1] { return y_old[1]; }
+                if x <= x_old[0] {
+                    return y_old[0];
+                }
+                if x >= x_old[1] {
+                    return y_old[1];
+                }
                 let t = (x - x_old[0]) / (x_old[1] - x_old[0]);
                 y_old[0] + t * (y_old[1] - y_old[0])
             })
@@ -491,17 +506,37 @@ pub fn akima_interp_f64(x_old: &[f64], y_old: &[f64], x_new: &[f64]) -> Vec<f64>
 
     // Compute Akima derivative at each data point
     // For point i, the relevant m_ext indices are (i, i+1, i+2, i+3)
-    // w1 = |m[i+3] - m[i+2]|, w2 = |m[i+1] - m[i]|
-    // t[i] = (w1*m[i+1] + w2*m[i+2]) / (w1+w2)  if w1+w2 > 0
-    //      = 0.5*(m[i+1] + m[i+2])               otherwise
+    // w1 = |m[i+3] - m[i+2]|  (= dm[i+2] = f1[i])
+    // w2 = |m[i+1] - m[i]|    (= dm[i]   = f2[i])
+    //
+    // SciPy uses a *relative* threshold: f12 > 1e-9 * max(f12)
+    // to decide whether to use the weighted formula or the fallback.
+    // The fallback is: t[i] = 0.5 * (m[i+3] + m[i])
+    // First, compute all dm values and find the max of f12
+    let dm: Vec<f64> = (0..m_ext.len() - 1)
+        .map(|i| (m_ext[i + 1] - m_ext[i]).abs())
+        .collect();
+    // f1[i] = dm[i+2], f2[i] = dm[i]
+    // f12[i] = f1[i] + f2[i] = dm[i+2] + dm[i]
+    let mut max_f12: f64 = 0.0;
+    for i in 0..n {
+        let f12 = dm[i + 2] + dm[i];
+        if f12 > max_f12 {
+            max_f12 = f12;
+        }
+    }
+    let threshold = 1e-9 * max_f12;
+
     let mut t_vals: Vec<f64> = Vec::with_capacity(n);
     for i in 0..n {
-        let w1 = (m_ext[i + 3] - m_ext[i + 2]).abs();
-        let w2 = (m_ext[i + 1] - m_ext[i]).abs();
-        if w1 + w2 > 1e-30 {
-            t_vals.push((w1 * m_ext[i + 1] + w2 * m_ext[i + 2]) / (w1 + w2));
+        let w1 = dm[i + 2]; // |m[i+3] - m[i+2]|
+        let w2 = dm[i];     // |m[i+1] - m[i]|
+        let f12 = w1 + w2;
+        if f12 > threshold {
+            t_vals.push((w1 * m_ext[i + 1] + w2 * m_ext[i + 2]) / f12);
         } else {
-            t_vals.push(0.5 * (m_ext[i + 1] + m_ext[i + 2]));
+            // SciPy fallback: t = 0.5 * (m[i+3] + m[i])
+            t_vals.push(0.5 * (m_ext[i + 3] + m_ext[i]));
         }
     }
 
@@ -526,7 +561,8 @@ pub fn akima_interp_f64(x_old: &[f64], y_old: &[f64], x_new: &[f64]) -> Vec<f64>
             let t = (x - x_old[idx]) / dx;
             let a = y_old[idx];
             let b = t_vals[idx] * dx;
-            let c = 3.0 * (y_old[idx + 1] - y_old[idx]) - 2.0 * t_vals[idx] * dx - t_vals[idx + 1] * dx;
+            let c =
+                3.0 * (y_old[idx + 1] - y_old[idx]) - 2.0 * t_vals[idx] * dx - t_vals[idx + 1] * dx;
             let d = 2.0 * (y_old[idx] - y_old[idx + 1]) + t_vals[idx] * dx + t_vals[idx + 1] * dx;
 
             a + t * (b + t * (c + t * d))

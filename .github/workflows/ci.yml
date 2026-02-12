@@ -10,9 +10,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Model download URLs (GitHub Release assets from openhachimi/hifisampler)
-  VOCODER_URL: "https://github.com/openhachimi/hifisampler/releases/download/models-v1/vocoder-model.onnx"
-  HNSEP_URL: "https://github.com/openhachimi/hifisampler/releases/download/models-v1/hnsep-model.onnx"
+  # Model archive (7z) from HuggingFace
+  MODELS_URL: "https://huggingface.co/SVCFusion/things/resolve/main/hifisampler-models.7z"
+  # ONNX Runtime version for load-dynamic
+  ORT_VERSION: "1.22.0"
 
 jobs:
   # ────────────────────────── Build & Test ──────────────────────────
@@ -24,12 +25,18 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: hifisampler-windows-x64
+            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-x64-1.22.0.zip"
+            ort_lib: "onnxruntime.dll"
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             artifact: hifisampler-linux-x64
+            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz"
+            ort_lib: "libonnxruntime.so"
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: hifisampler-macos-arm64
+            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-arm64-1.22.0.tgz"
+            ort_lib: "libonnxruntime.dylib"
 
     runs-on: ${{ matrix.os }}
     name: Build (${{ matrix.artifact }})
@@ -58,21 +65,82 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
 
+      # ── Download ONNX Runtime shared library ──
+      - name: Download ONNX Runtime
+        shell: bash
+        run: |
+          mkdir -p ort_lib
+          echo "Downloading ONNX Runtime from ${{ matrix.ort_url }}..."
+          curl -fSL --retry 3 "${{ matrix.ort_url }}" -o ort_archive
+
+          if [[ "${{ matrix.ort_url }}" == *.zip ]]; then
+            unzip -q ort_archive -d ort_extract
+          else
+            mkdir -p ort_extract && tar xzf ort_archive -C ort_extract
+          fi
+
+          # Find and copy the shared library
+          find ort_extract -name "${{ matrix.ort_lib }}" -exec cp {} ort_lib/ \;
+          # Also copy versioned symlinks on Linux
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            find ort_extract -name "libonnxruntime.so.*" -exec cp -P {} ort_lib/ \;
+          fi
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            find ort_extract -name "libonnxruntime.*.dylib" -exec cp -P {} ort_lib/ \;
+          fi
+          ls -lh ort_lib/
+
       - name: Build (release)
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Run unit tests
+        shell: bash
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ort_lib/${{ matrix.ort_lib }}
         run: cargo test --release --target ${{ matrix.target }}
 
-      # ── Download model files ──
+      # ── Download model files (7z archive from HuggingFace) ──
       - name: Download models
         shell: bash
         run: |
+          echo "Downloading model archive from HuggingFace..."
+          curl -fSL --retry 3 "$MODELS_URL" -o hifisampler-models.7z || {
+            echo "::warning::Model archive download failed, skipping"
+            exit 0
+          }
+
+          # Extract 7z archive
+          if command -v 7z &>/dev/null; then
+            7z x hifisampler-models.7z -omodels_extract -y
+          elif command -v 7zz &>/dev/null; then
+            7zz x hifisampler-models.7z -omodels_extract -y
+          else
+            echo "Installing 7z..."
+            if [[ "${{ runner.os }}" == "Linux" ]]; then
+              sudo apt-get install -y p7zip-full
+            elif [[ "${{ runner.os }}" == "macOS" ]]; then
+              brew install p7zip
+            fi
+            7z x hifisampler-models.7z -omodels_extract -y
+          fi
+
+          # Map extracted directories to expected structure
           mkdir -p models/vocoder models/hnsep
-          echo "Downloading vocoder model..."
-          curl -fSL --retry 3 "$VOCODER_URL" -o models/vocoder/model.onnx || echo "::warning::Vocoder model download failed, skipping"
-          echo "Downloading hnsep model..."
-          curl -fSL --retry 3 "$HNSEP_URL" -o models/hnsep/model.onnx || echo "::warning::HN-SEP model download failed, skipping"
+          if [ -f "models_extract/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/model.onnx" ]; then
+            cp "models_extract/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/model.onnx" models/vocoder/model.onnx
+            echo "✓ Vocoder model copied"
+          else
+            echo "::warning::Vocoder model.onnx not found in archive"
+            find models_extract -name "*.onnx" || true
+          fi
+          if [ -f "models_extract/vr/model.onnx" ]; then
+            cp "models_extract/vr/model.onnx" models/hnsep/model.onnx
+            echo "✓ HN-SEP model copied"
+          elif [ -f "models_extract/vr/model.pt" ]; then
+            echo "::warning::Only model.pt found for HN-SEP (no ONNX), skipping"
+          else
+            echo "::warning::HN-SEP model not found in archive"
+          fi
           ls -lhR models/ || true
 
       # ── Package artifacts ──
@@ -86,6 +154,8 @@ jobs:
           Copy-Item "target/${{ matrix.target }}/release/hifisampler-server.exe" "$out/"
           Copy-Item "config.default.yaml"  "$out/"
           Copy-Item "README.md"            "$out/"
+          # Bundle ONNX Runtime
+          if (Test-Path "ort_lib") { Copy-Item -Recurse "ort_lib/*" "$out/" }
           if (Test-Path "webui") { Copy-Item -Recurse "webui" "$out/webui" }
           if (Test-Path "models") { Copy-Item -Recurse "models" "$out/models" }
           Compress-Archive -Path "$out/*" -DestinationPath "dist/${{ matrix.artifact }}.zip"
@@ -99,6 +169,8 @@ jobs:
           cp "target/${{ matrix.target }}/release/hifisampler-server" "$out/"
           cp config.default.yaml "$out/"
           cp README.md           "$out/"
+          # Bundle ONNX Runtime
+          [ -d ort_lib ] && cp -P ort_lib/* "$out/"
           [ -d webui ] && cp -r webui "$out/webui"
           [ -d models ] && cp -r models "$out/models"
           cd dist && tar czf "${{ matrix.artifact }}.tar.gz" "${{ matrix.artifact }}"

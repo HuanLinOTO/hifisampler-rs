@@ -65,11 +65,7 @@ fn run() -> Result<()> {
 
 /// Check if the server is ready.
 fn is_server_ready(client: &reqwest::blocking::Client, base_url: &str) -> bool {
-    match client
-        .get(base_url)
-        .timeout(Duration::from_secs(2))
-        .send()
-    {
+    match client.get(base_url).timeout(Duration::from_secs(2)).send() {
         Ok(resp) => resp.status().is_success(),
         Err(_) => false,
     }
@@ -141,11 +137,7 @@ fn send_request_with_retry(
     body: &str,
 ) -> Result<()> {
     for attempt in 0..MAX_RETRIES {
-        match client
-            .post(base_url)
-            .body(body.to_string())
-            .send()
-        {
+        match client.post(base_url).body(body.to_string()).send() {
             Ok(resp) => {
                 let status = resp.status();
                 if status.is_success() {
@@ -196,8 +188,7 @@ fn acquire_startup_mutex() -> MutexGuard {
     use std::ffi::CString;
 
     unsafe {
-        let name =
-            CString::new("Global\\HifiSamplerServerStartupMutex_DCL_8572").unwrap();
+        let name = CString::new("Global\\HifiSamplerServerStartupMutex_DCL_8572").unwrap();
         let handle = windows_sys::Win32::System::Threading::CreateMutexA(
             std::ptr::null_mut(),
             0, // not initially owned
@@ -206,12 +197,13 @@ fn acquire_startup_mutex() -> MutexGuard {
 
         if handle.is_null() {
             eprintln!("Warning: Failed to create mutex, proceeding without lock");
-            return MutexGuard { handle: std::ptr::null_mut() };
+            return MutexGuard {
+                handle: std::ptr::null_mut(),
+            };
         }
 
         windows_sys::Win32::System::Threading::WaitForSingleObject(
-            handle,
-            30000, // 30s timeout
+            handle, 30000, // 30s timeout
         );
 
         MutexGuard { handle }

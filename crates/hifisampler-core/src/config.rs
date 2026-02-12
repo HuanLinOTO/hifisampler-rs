@@ -66,6 +66,16 @@ pub struct ProcessingConfig {
 pub struct PerformanceConfig {
     #[serde(default = "default_num_threads")]
     pub num_threads: usize,
+    /// Execution provider for ONNX Runtime inference.
+    ///
+    /// Supported values:
+    /// - `"auto"` — try all platform-appropriate EPs (TensorRT → CUDA → DirectML/CoreML/ROCm → CPU)
+    /// - `"cpu"` — CPU only
+    /// - `"cuda"` — NVIDIA CUDA
+    /// - `"tensorrt"` — NVIDIA TensorRT (with CUDA fallback)
+    /// - `"directml"` / `"dml"` — Microsoft DirectML (Windows)
+    /// - `"coreml"` — Apple CoreML (macOS)
+    /// - `"rocm"` — AMD ROCm (Linux)
     #[serde(default = "default_device")]
     pub device: String,
 }

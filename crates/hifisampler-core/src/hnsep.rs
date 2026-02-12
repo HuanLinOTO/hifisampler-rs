@@ -2,12 +2,13 @@
 
 use anyhow::Result;
 use num_complex::Complex;
-use ort::execution_providers::DirectMLExecutionProvider;
 use ort::session::Session;
 use ort::value::Tensor;
 use rustfft::FftPlanner;
 use std::path::Path;
 use tracing::info;
+
+use crate::ep::build_execution_providers;
 
 /// HN-SEP model for harmonic/noise separation using ONNX Runtime.
 pub struct HnsepModel {
@@ -19,9 +20,7 @@ pub struct HnsepModel {
 impl HnsepModel {
     /// Load the HN-SEP ONNX model.
     ///
-    /// `device` controls the execution provider:
-    /// - `"directml"` or `"auto"` → try DirectML first, fall back to CPU
-    /// - `"cpu"` → CPU only
+    /// `device` controls the execution provider — see [`crate::ep::build_execution_providers`].
     pub fn load(
         model_path: impl AsRef<Path>,
         n_fft: usize,
@@ -34,12 +33,9 @@ impl HnsepModel {
 
         let mut builder = Session::builder()?;
 
-        let use_directml = matches!(device.to_lowercase().as_str(), "auto" | "directml" | "dml");
-        if use_directml {
-            info!("Attempting to register DirectML execution provider for HN-SEP...");
-            builder = builder.with_execution_providers([
-                DirectMLExecutionProvider::default().build(),
-            ])?;
+        let eps = build_execution_providers(device);
+        if !eps.is_empty() {
+            builder = builder.with_execution_providers(eps)?;
         }
 
         let threads = if num_threads == 0 { 4 } else { num_threads };

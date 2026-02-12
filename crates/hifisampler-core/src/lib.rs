@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod cache;
 pub mod config;
+pub mod ep;
 pub mod growl;
 pub mod hnsep;
 pub mod mel;

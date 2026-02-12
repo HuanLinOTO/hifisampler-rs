@@ -14,7 +14,7 @@ use axum::{
     Router,
     extract::State,
     http::StatusCode,
-    response::{IntoResponse, Response, Redirect},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post, put},
 };
 use clap::Parser;

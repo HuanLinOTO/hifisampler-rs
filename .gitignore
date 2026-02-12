@@ -35,4 +35,3 @@ __pycache__/
 # Distribution
 /dist/
 server.log
-*.pyc

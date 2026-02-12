@@ -39,6 +39,7 @@ cargo build --release
 ```
 
 Binaries will be in `target/release/`:
+
 - `hifisampler-server` (or `.exe` on Windows)
 - `hifisampler` (bridge, or `.exe` on Windows)
 
@@ -51,6 +52,7 @@ Binaries will be in `target/release/`:
 2. Copy `config.default.yaml` to `config.yaml` and adjust settings.
 
 3. Start the server:
+
    ```bash
    ./hifisampler-server --config config.yaml
    ```

@@ -1,45 +1,45 @@
 [workspace]
-resolver = "2"
 members = [
-    "crates/hifisampler-server",
-    "crates/hifisampler-bridge",
-    "crates/hifisampler-core",
+  "crates/hifisampler-server",
+  "crates/hifisampler-bridge",
+  "crates/hifisampler-core",
 ]
+resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/openhachimi/hifisampler"
+version = "0.1.0"
 
 [workspace.dependencies]
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio = {version = "1", features = ["full"]}
 # HTTP server
-axum = { version = "0.8", features = ["macros"] }
+axum = {version = "0.8", features = ["macros"]}
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "fs"] }
+tower-http = {version = "0.6", features = ["cors", "fs"]}
 # Serialization
-serde = { version = "1", features = ["derive"] }
+serde = {version = "1", features = ["derive"]}
 serde_json = "1"
 serde_yaml = "0.9"
 # ONNX Runtime
-ort = { version = "2.0.0-rc.11", features = ["ndarray", "directml"] }
 ndarray = "0.17"
+ort = {version = "2.0.0-rc.11", features = ["ndarray", "directml"]}
 # Audio processing
 hound = "3.5"
 rubato = "0.16"
 rustfft = "6"
 # Logging
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = {version = "0.3", features = ["env-filter"]}
 # Error handling
 anyhow = "1"
 thiserror = "2"
 # Misc
 base64 = "0.22"
-regex = "1"
-parking_lot = "0.12"
+clap = {version = "4", features = ["derive"]}
 num-complex = "0.4"
-clap = { version = "4", features = ["derive"] }
-reqwest = { version = "0.12", features = ["blocking"] }
+parking_lot = "0.12"
+regex = "1"
+reqwest = {version = "0.12", features = ["blocking"]}

@@ -79,24 +79,60 @@ pub struct ServerConfig {
 }
 
 // Default value functions
-fn default_sample_rate() -> u32 { 44100 }
-fn default_win_size() -> usize { 2048 }
-fn default_hop_size() -> usize { 512 }
-fn default_hop_size_interp() -> usize { 128 }
-fn default_num_mels() -> usize { 128 }
-fn default_n_fft() -> usize { 2048 }
-fn default_fmin() -> f64 { 40.0 }
-fn default_fmax() -> f64 { 16000.0 }
-fn default_pad_frames() -> usize { 6 }
-fn default_vocoder_model() -> PathBuf { PathBuf::from("models/vocoder/model.onnx") }
-fn default_vocoder_type() -> String { "onnx".to_string() }
-fn default_hnsep_model() -> PathBuf { PathBuf::from("models/hnsep/model.onnx") }
-fn default_peak_limit() -> f32 { 1.0 }
-fn default_num_threads() -> usize { 2 }
-fn default_device() -> String { "auto".to_string() }
-fn default_true() -> bool { true }
-fn default_host() -> String { "127.0.0.1".to_string() }
-fn default_port() -> u16 { 8572 }
+fn default_sample_rate() -> u32 {
+    44100
+}
+fn default_win_size() -> usize {
+    2048
+}
+fn default_hop_size() -> usize {
+    512
+}
+fn default_hop_size_interp() -> usize {
+    128
+}
+fn default_num_mels() -> usize {
+    128
+}
+fn default_n_fft() -> usize {
+    2048
+}
+fn default_fmin() -> f64 {
+    40.0
+}
+fn default_fmax() -> f64 {
+    16000.0
+}
+fn default_pad_frames() -> usize {
+    6
+}
+fn default_vocoder_model() -> PathBuf {
+    PathBuf::from("models/vocoder/model.onnx")
+}
+fn default_vocoder_type() -> String {
+    "onnx".to_string()
+}
+fn default_hnsep_model() -> PathBuf {
+    PathBuf::from("models/hnsep/model.onnx")
+}
+fn default_peak_limit() -> f32 {
+    1.0
+}
+fn default_num_threads() -> usize {
+    2
+}
+fn default_device() -> String {
+    "auto".to_string()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_host() -> String {
+    "127.0.0.1".to_string()
+}
+fn default_port() -> u16 {
+    8572
+}
 
 impl Default for Config {
     fn default() -> Self {

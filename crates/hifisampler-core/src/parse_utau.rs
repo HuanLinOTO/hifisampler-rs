@@ -168,9 +168,8 @@ impl UtauFlags {
 ///
 /// Format: various flag codes like "g-10Hb80Hv120Ht20HG50t10A5P80GHe"
 pub fn parse_flags(flags_str: &str) -> UtauFlags {
-    static FLAG_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)(g|Hb|Hv|Ht|HG|He|t|A|P|G)(-?\d+)?").unwrap()
-    });
+    static FLAG_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?i)(g|Hb|Hv|Ht|HG|He|t|A|P|G)(-?\d+)?").unwrap());
 
     let mut flags = UtauFlags {
         hb: 100,
@@ -239,11 +238,14 @@ impl UtauParams {
         };
 
         let args: Vec<&str> = remainder.split_whitespace().collect();
-        
+
         // Extract output path and UTAU params
         // The last 11 args are: pitch velocity flags offset length consonant cutoff volume modulation tempo pitchbend
         if args.len() < 12 {
-            anyhow::bail!("Not enough UTAU parameters: got {}, need at least 12", args.len());
+            anyhow::bail!(
+                "Not enough UTAU parameters: got {}, need at least 12",
+                args.len()
+            );
         }
 
         let param_start = args.len() - 11;

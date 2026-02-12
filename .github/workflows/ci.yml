@@ -286,7 +286,8 @@ jobs:
           [ -d webui ] && cp -r webui "$out/webui"
           [ -d models ] && cp -r models "$out/models"
 
-          cd dist && tar czf "${{ matrix.artifact }}.tar.gz" "${{ matrix.artifact }}"
+          # Archive the *contents* of the artifact directory (avoid double-nesting)
+          tar -C "dist/${{ matrix.artifact }}" -czf "dist/${{ matrix.artifact }}.tar.gz" .
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v4

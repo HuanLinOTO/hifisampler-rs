@@ -70,13 +70,26 @@ pub fn build_execution_providers(device: &str) -> Vec<ExecutionProviderDispatch>
 }
 
 /// Build the optimal EP list for the current platform.
+///
+/// The caller should expect ERROR-level logs from `ort::ep` when an EP cannot
+/// be registered (e.g. missing CUDA/cuDNN/TensorRT SDK).  These are harmless —
+/// ONNX Runtime will automatically fall back to the next EP in the list and
+/// ultimately to CPU if nothing else is available.
 fn auto_providers() -> Vec<ExecutionProviderDispatch> {
+    info!(
+        "Auto mode will try GPU providers in priority order. \
+         Errors from ort::ep about missing DLLs (e.g. nvinfer, cudnn) are normal \
+         if the corresponding SDK is not installed — ONNX Runtime will fall back to CPU."
+    );
     let mut eps: Vec<ExecutionProviderDispatch> = Vec::new();
 
     // NVIDIA: TensorRT > CUDA  (Windows + Linux)
     if cfg!(any(
         all(target_os = "windows", target_arch = "x86_64"),
-        all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))
+        all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )
     )) {
         eps.push(TensorRTExecutionProvider::default().build());
         eps.push(CUDAExecutionProvider::default().build());
@@ -88,7 +101,10 @@ fn auto_providers() -> Vec<ExecutionProviderDispatch> {
     }
 
     // ROCm (Linux only)
-    if cfg!(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))) {
+    if cfg!(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )) {
         eps.push(ROCmExecutionProvider::default().build());
     }
 

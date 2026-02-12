@@ -62,16 +62,13 @@ impl Vocoder {
         let f0_data: Vec<f32> = f0[..n_frames].to_vec();
         let f0_tensor = Tensor::from_array(([1usize, n_frames], f0_data))?;
 
-        let outputs = self.session.run(
-            ort::inputs![
-                "mel" => mel_tensor,
-                "f0" => f0_tensor,
-            ],
-        )?;
+        let outputs = self.session.run(ort::inputs![
+            "mel" => mel_tensor,
+            "f0" => f0_tensor,
+        ])?;
 
         // Extract waveform
-        let (_, waveform_data) = outputs["waveform"]
-            .try_extract_tensor::<f32>()?;
+        let (_, waveform_data) = outputs["waveform"].try_extract_tensor::<f32>()?;
         let wav: Vec<f32> = waveform_data.to_vec();
 
         Ok(wav)

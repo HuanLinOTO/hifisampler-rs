@@ -76,20 +76,15 @@ impl HnsepModel {
             }
         }
 
-        let input_tensor = Tensor::from_array(
-            ([1usize, 2, freq_bins, pad_frames], input_data),
-        )?;
+        let input_tensor = Tensor::from_array(([1usize, 2, freq_bins, pad_frames], input_data))?;
 
         // Run inference
-        let outputs = self.session.run(
-            ort::inputs![
-                "input" => input_tensor,
-            ],
-        )?;
+        let outputs = self.session.run(ort::inputs![
+            "input" => input_tensor,
+        ])?;
 
         // Extract mask: [1, 2, freq_bins, time] as flat slice
-        let (_mask_shape, mask_data) = outputs["output"]
-            .try_extract_tensor::<f32>()?;
+        let (_mask_shape, mask_data) = outputs["output"].try_extract_tensor::<f32>()?;
 
         // mask_shape should be [1, 2, freq_bins, pad_frames]
         // Index function for [1, 2, freq_bins, pad_frames] row-major
@@ -114,7 +109,13 @@ impl HnsepModel {
         }
 
         // ISTFT to get harmonic audio
-        let harmonic = compute_istft(&masked_frames, self.n_fft, self.hop_length, &window, audio.len());
+        let harmonic = compute_istft(
+            &masked_frames,
+            self.n_fft,
+            self.hop_length,
+            &window,
+            audio.len(),
+        );
 
         Ok(harmonic)
     }
@@ -214,8 +215,6 @@ fn compute_istft(
 /// Create Hann window.
 fn hann_window(size: usize) -> Vec<f32> {
     (0..size)
-        .map(|i| {
-            0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / size as f32).cos())
-        })
+        .map(|i| 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / size as f32).cos()))
         .collect()
 }

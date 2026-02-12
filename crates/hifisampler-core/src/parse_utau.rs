@@ -263,6 +263,10 @@ impl UtauParams {
 
         let parse_f32 = |s: &str| -> f32 { s.parse().unwrap_or(0.0) };
 
+        // UTAU tempo format: "!120" — strip the leading '!' before parsing.
+        // Python: self.tempo = float(tempo[1:])
+        let tempo_str = args[param_start + 9].trim_start_matches('!');
+
         Ok(Self {
             input_path,
             output_path,
@@ -275,7 +279,7 @@ impl UtauParams {
             cutoff: parse_f32(args[param_start + 6]),
             volume: parse_f32(args[param_start + 7]),
             modulation: parse_f32(args[param_start + 8]),
-            tempo: parse_f32(args[param_start + 9]),
+            tempo: parse_f32(tempo_str),
             pitchbend: args[param_start + 10].to_string(),
         })
     }
@@ -326,5 +330,18 @@ mod tests {
         assert_eq!(flags.hv, 120);
         assert_eq!(flags.ht, 20);
         assert_eq!(flags.hg, 50);
+    }
+
+    #[test]
+    fn test_parse_tempo() {
+        // UTAU sends tempo with '!' prefix: "!120", "!150", etc.
+        let raw = r"C:\test\input.wav C:\test\output.wav C4 100 g0 0 1000 100 -500 100 0 !150 AA";
+        let params = UtauParams::parse(raw).unwrap();
+        assert!((params.tempo - 150.0).abs() < 0.01, "tempo should be 150, got {}", params.tempo);
+
+        // Without '!' prefix should also work
+        let raw2 = r"C:\test\input.wav C:\test\output.wav C4 100 g0 0 1000 100 -500 100 0 120 AA";
+        let params2 = UtauParams::parse(raw2).unwrap();
+        assert!((params2.tempo - 120.0).abs() < 0.01, "tempo should be 120, got {}", params2.tempo);
     }
 }

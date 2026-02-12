@@ -1,18 +1,29 @@
 ; HiFiSampler Inno Setup Script
-; Build with: iscc setup.iss
+; ─────────────────────────────────────────────────────────────
+; Local build:
+;   iscc /DSourceDir=..\dist\hifisampler-windows-x64-cpu setup.iss
+;
+; CI build:
+;   iscc /DSourceDir=D:\a\repo\dist\hifisampler-windows-x64-directml ^
+;        /DVariant=directml /DMyAppVersion=0.2.0 setup.iss
+;
 ; Requires Inno Setup 6.x — https://jrsoftware.org/isinfo.php
+; ─────────────────────────────────────────────────────────────
 
+; ── Defaults (overridable via /D on command line) ──
+#ifndef SourceDir
+  #define SourceDir "..\dist\hifisampler-windows-x64-cpu"
+#endif
+#ifndef Variant
+  #define Variant "cpu"
+#endif
 #define MyAppName "HiFiSampler"
-#define MyAppVersion "0.1.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "0.1.0"
+#endif
 #define MyAppPublisher "OpenHachimi"
 #define MyAppURL "https://github.com/openhachimi/hifisampler"
 #define MyAppExeName "hifisampler-server.exe"
-
-; ── Paths to build output (adjust if needed) ──
-; Assumes this script is run from hifisampler-rs/installer/
-; and the release build is at hifisampler-rs/target/x86_64-pc-windows-msvc/release/
-#define BuildDir "..\target\x86_64-pc-windows-msvc\release"
-#define RootDir ".."
 
 [Setup]
 AppId={{B5E3A7D0-8C1F-4F9A-A2D1-HIFISAMPLER01}
@@ -24,15 +35,17 @@ AppSupportURL={#MyAppURL}/issues
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
-LicenseFile={#RootDir}\LICENSE
+; LICENSE is optional — only set if present
+#if FileExists(AddBackslash(SourceDir) + "LICENSE")
+LicenseFile={#SourceDir}\LICENSE
+#endif
 OutputDir=output
-OutputBaseFilename=HiFiSampler-{#MyAppVersion}-Setup
+OutputBaseFilename=HiFiSampler-{#MyAppVersion}-{#Variant}-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-SetupIconFile=
 UninstallDisplayIcon={app}\{#MyAppExeName}
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
@@ -46,24 +59,26 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 Name: "installbridge"; Description: "自动安装桥接程序到 OpenUTAU Resamplers"; GroupDescription: "OpenUTAU 集成:"; Flags: unchecked
 
 [Files]
-; Server & Bridge binaries
-Source: "{#BuildDir}\hifisampler-server.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#BuildDir}\hifisampler.exe"; DestDir: "{app}"; Flags: ignoreversion
+; ── Binaries ──
+Source: "{#SourceDir}\hifisampler-server.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\hifisampler.exe"; DestDir: "{app}"; Flags: ignoreversion
 
-; Config
-Source: "{#RootDir}\config.default.yaml"; DestDir: "{app}"; DestName: "config.yaml"; Flags: onlyifdoesntexist
-Source: "{#RootDir}\config.default.yaml"; DestDir: "{app}"; Flags: ignoreversion
+; ── ONNX Runtime DLLs (varies per EP variant) ──
+Source: "{#SourceDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
-; WebUI
-Source: "{#RootDir}\webui\*"; DestDir: "{app}\webui"; Flags: ignoreversion recursesubdirs createallsubdirs
+; ── Config ──
+Source: "{#SourceDir}\config.default.yaml"; DestDir: "{app}"; DestName: "config.yaml"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "{#SourceDir}\config.default.yaml"; DestDir: "{app}"; Flags: ignoreversion
 
-; Models
-Source: "{#RootDir}\models\vocoder\model.onnx"; DestDir: "{app}\models\vocoder"; Flags: ignoreversion; Check: FileExists(ExpandConstant('{#RootDir}\models\vocoder\model.onnx'))
-Source: "{#RootDir}\models\hnsep\model.onnx"; DestDir: "{app}\models\hnsep"; Flags: ignoreversion; Check: FileExists(ExpandConstant('{#RootDir}\models\hnsep\model.onnx'))
+; ── WebUI ──
+Source: "{#SourceDir}\webui\*"; DestDir: "{app}\webui"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
-; Docs
-Source: "{#RootDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#RootDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+; ── Models ──
+Source: "{#SourceDir}\models\*"; DestDir: "{app}\models"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+
+; ── Docs ──
+Source: "{#SourceDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\HiFiSampler Server"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
@@ -83,7 +98,8 @@ begin
   OpenUtauDirPage := CreateInputDirPage(wpSelectTasks,
     'OpenUTAU Resamplers 目录',
     '选择 OpenUTAU 的 Resamplers 文件夹',
-    '请浏览并选择 OpenUTAU 的 Resamplers 目录。桥接程序将被复制到此处。' + #13#10 +
+    '请浏览并选择 OpenUTAU 的 Resamplers 目录。' + #13#10 +
+    '桥接程序将被复制到此处，以便 OpenUTAU 调用 HiFiSampler 引擎。' + #13#10 + #13#10 +
     '（通常位于 C:\Users\你的用户名\OpenUtau\Resamplers）',
     False, '');
   OpenUtauDirPage.Add('');
@@ -106,7 +122,7 @@ begin
     if WizardIsTaskSelected('installbridge') then
     begin
       Src := ExpandConstant('{app}\hifisampler.exe');
-      Dest := OpenUtauDirPage.Values[0] + '\hifisampler.exe';
+      Dest := AddBackslash(OpenUtauDirPage.Values[0]) + 'hifisampler.exe';
       if DirExists(OpenUtauDirPage.Values[0]) then
       begin
         FileCopy(Src, Dest, False);
@@ -115,9 +131,15 @@ begin
           '在 Resampler 列表中选择 hifisampler.exe。', mbInformation, MB_OK);
       end
       else
-        MsgBox('OpenUTAU Resamplers 目录不存在：' + #13#10 +
-          OpenUtauDirPage.Values[0] + #13#10 +
-          '请手动将 hifisampler.exe 复制到该目录。', mbError, MB_OK);
+      begin
+        if MsgBox('Resamplers 目录不存在：' + #13#10 + OpenUtauDirPage.Values[0] + #13#10#13#10 +
+          '是否创建该目录并安装？', mbConfirmation, MB_YESNO) = IDYES then
+        begin
+          ForceDirectories(OpenUtauDirPage.Values[0]);
+          FileCopy(Src, Dest, False);
+          MsgBox('桥接程序已安装到：' + #13#10 + Dest, mbInformation, MB_OK);
+        end;
+      end;
     end;
   end;
 end;

@@ -287,6 +287,7 @@ jobs:
           # Config & docs
           Copy-Item "config.default.yaml" "$out/"
           Copy-Item "README.md"           "$out/"
+          if (Test-Path "LICENSE") { Copy-Item "LICENSE" "$out/" }
 
           # ALL ONNX Runtime DLLs (onnxruntime.dll, providers_shared, providers_cuda, etc.)
           if (Test-Path "ort_lib") { Copy-Item "ort_lib/*" "$out/" }
@@ -295,7 +296,18 @@ jobs:
           if (Test-Path "webui") { Copy-Item -Recurse "webui" "$out/webui" }
           if (Test-Path "models") { Copy-Item -Recurse "models" "$out/models" }
 
-          Compress-Archive -Path "$out/*" -DestinationPath "dist/${{ matrix.artifact }}.zip"
+      # ── Build Inno Setup installer (Windows only) ──
+      - name: Build installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $sourceDir = (Resolve-Path "dist/${{ matrix.artifact }}").Path
+          $version = if ("${{ github.ref_name }}" -match '^\d') { "${{ github.ref_name }}" } else { "0.1.0" }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            /DSourceDir="$sourceDir" `
+            /DVariant="${{ matrix.variant }}" `
+            /DMyAppVersion="$version" `
+            installer\setup.iss
 
       # ── Package (Linux/macOS) ──
       - name: Package (Linux/macOS)
@@ -312,6 +324,7 @@ jobs:
           # Config & docs
           cp config.default.yaml "$out/"
           cp README.md           "$out/"
+          [ -f LICENSE ] && cp LICENSE "$out/"
 
           # ALL ORT shared libraries
           [ -d ort_lib ] && cp -P ort_lib/* "$out/"
@@ -320,17 +333,20 @@ jobs:
           [ -d webui ] && cp -r webui "$out/webui"
           [ -d models ] && cp -r models "$out/models"
 
-          # Archive the *contents* of the artifact directory (avoid double-nesting)
-          tar -C "dist/${{ matrix.artifact }}" -czf "dist/${{ matrix.artifact }}.tar.gz" .
-
+      # Upload the assembled directory (NO zip/tar — upload-artifact wraps it)
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: |
-            dist/${{ matrix.artifact }}.zip
-            dist/${{ matrix.artifact }}.tar.gz
-          if-no-files-found: ignore
+          path: dist/${{ matrix.artifact }}/
+
+      # Upload installer (Windows only)
+      - name: Upload installer artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-installer
+          path: installer/output/*.exe
 
   # ────────────────────────── Release ──────────────────────────
   release:
@@ -346,9 +362,34 @@ jobs:
         with:
           path: artifacts
 
+      - name: Create release archives
+        shell: bash
+        run: |
+          mkdir -p release_assets
+          cd artifacts
+          for dir in */; do
+            name="${dir%/}"
+
+            # Skip build-stage binary artifacts
+            [[ "$name" == binaries-* ]] && continue
+
+            # Installer exes — copy directly
+            if [[ "$name" == *-installer ]]; then
+              cp "$name"/*.exe ../release_assets/ 2>/dev/null || true
+              continue
+            fi
+
+            # Portable packages — create archive
+            if [[ "$name" == *windows* ]]; then
+              (cd "$name" && zip -r "../../release_assets/${name}.zip" .)
+            else
+              tar -C "$name" -czf "../release_assets/${name}.tar.gz" .
+            fi
+          done
+          echo "=== Release assets ==="
+          ls -lh ../release_assets/
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            artifacts/**/*.zip
-            artifacts/**/*.tar.gz
+          files: release_assets/*

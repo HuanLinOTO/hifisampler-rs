@@ -48,8 +48,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            hifisampler-rs/target
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('hifisampler-rs/Cargo.lock') }}
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.target }}-
 
@@ -59,16 +59,13 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
 
       - name: Build (release)
-        working-directory: hifisampler-rs
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Run unit tests
-        working-directory: hifisampler-rs
         run: cargo test --release --target ${{ matrix.target }}
 
       # ── Download model files ──
       - name: Download models
-        working-directory: hifisampler-rs
         shell: bash
         run: |
           mkdir -p models/vocoder models/hnsep
@@ -82,7 +79,6 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        working-directory: hifisampler-rs
         run: |
           $out = "dist/${{ matrix.artifact }}"
           New-Item -ItemType Directory -Force -Path $out
@@ -96,7 +92,6 @@ jobs:
 
       - name: Package (Linux/macOS)
         if: runner.os != 'Windows'
-        working-directory: hifisampler-rs
         run: |
           out="dist/${{ matrix.artifact }}"
           mkdir -p "$out"
@@ -113,8 +108,8 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: |
-            hifisampler-rs/dist/${{ matrix.artifact }}.zip
-            hifisampler-rs/dist/${{ matrix.artifact }}.tar.gz
+            dist/${{ matrix.artifact }}.zip
+            dist/${{ matrix.artifact }}.tar.gz
           if-no-files-found: ignore
 
   # ────────────────────────── Release ──────────────────────────

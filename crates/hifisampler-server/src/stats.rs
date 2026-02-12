@@ -88,8 +88,7 @@ impl StatsCollector {
         let avg_total = self.history.iter().map(|s| s.total_ms).sum::<f64>() / count as f64;
         let avg_feat = self.history.iter().map(|s| s.feature_ms).sum::<f64>() / count as f64;
         let avg_synth = self.history.iter().map(|s| s.synthesis_ms).sum::<f64>() / count as f64;
-        let avg_post =
-            self.history.iter().map(|s| s.postprocess_ms).sum::<f64>() / count as f64;
+        let avg_post = self.history.iter().map(|s| s.postprocess_ms).sum::<f64>() / count as f64;
 
         let mut sorted_total: Vec<f64> = self.history.iter().map(|s| s.total_ms).collect();
         sorted_total.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -103,8 +102,12 @@ impl StatsCollector {
         let cache_hits = self.history.iter().filter(|s| s.cache_hit).count();
         let cache_hit_rate = cache_hits as f64 / count as f64;
 
-        let avg_output =
-            self.history.iter().map(|s| s.output_samples as f64).sum::<f64>() / count as f64;
+        let avg_output = self
+            .history
+            .iter()
+            .map(|s| s.output_samples as f64)
+            .sum::<f64>()
+            / count as f64;
 
         // Simple throughput estimate
         let total_time_s = self.history.iter().map(|s| s.total_ms).sum::<f64>() / 1000.0;

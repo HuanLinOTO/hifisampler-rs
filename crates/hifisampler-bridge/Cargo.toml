@@ -8,11 +8,8 @@ name = "hifisampler"
 path = "src/main.rs"
 
 [dependencies]
-anyhow.workspace = true
-clap.workspace = true
-reqwest.workspace = true
-serde.workspace = true
-serde_json.workspace = true
+# No external dependencies for HTTP — uses raw std::net::TcpStream
+# to keep binary size minimal (bridge only talks to localhost)
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = {version = "0.59", features = [

@@ -1,34 +1,39 @@
 //! HiFiSampler Bridge - OpenUTAU/UTAU client executable.
 //!
-//! This binary replaces the original C# hifisampler.exe.
-//! It acts as a bridge between OpenUTAU and the HiFiSampler server:
-//! 1. Checks if the server is running
-//! 2. If not, starts the server automatically
-//! 3. Forwards UTAU resample parameters via HTTP POST
+//! Minimal bridge between OpenUTAU and the HiFiSampler server.
+//! Uses raw TCP sockets for HTTP — no external dependencies — to keep
+//! the binary as small as possible (~200KB stripped).
 //!
-//! Double-Checked Locking (DCL) pattern ensures only one instance starts the server.
+//! Flow:
+//! 1. Check if the server is running (GET /)
+//! 2. If not, acquire a startup mutex → start the server
+//! 3. Forward UTAU resample parameters via HTTP POST /
 
-use anyhow::Result;
 use std::env;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const SERVER_HOST: &str = "127.0.0.1";
-const SERVER_PORT: u16 = 8572;
-const MAX_STARTUP_WAIT_SECS: u64 = 90;
+const HOST: &str = "127.0.0.1";
+const PORT: u16 = 8572;
+const ADDR: &str = "127.0.0.1:8572";
+const MAX_STARTUP_WAIT: Duration = Duration::from_secs(90);
 const MAX_RETRIES: u32 = 3;
-const RETRY_DELAY_MS: u64 = 500;
+const RETRY_DELAY: Duration = Duration::from_millis(500);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
 fn main() {
-    if let Err(e) = run() {
-        eprintln!("Error: {}", e);
+    if let Err(msg) = run() {
+        eprintln!("Error: {msg}");
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<()> {
+fn run() -> Result<(), String> {
     let args: Vec<String> = env::args().skip(1).collect();
 
     if args.is_empty() {
@@ -37,152 +42,166 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
-    let base_url = format!("http://{}:{}", SERVER_HOST, SERVER_PORT);
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(120))
-        .build()?;
-
     // ── Step 1: Quick check if server is running ──
-    if !is_server_ready(&client, &base_url) {
+    if !is_server_ready() {
         // ── Step 2: Acquire mutex and double-check ──
         let _mutex = acquire_startup_mutex();
 
-        if !is_server_ready(&client, &base_url) {
+        if !is_server_ready() {
             // ── Step 3: Start server ──
             start_server()?;
 
             // ── Step 4: Wait for server to be ready ──
-            wait_for_server(&client, &base_url)?;
+            wait_for_server()?;
         }
     }
 
     // ── Step 5: Send inference request ──
     let body = args.join(" ");
-    send_request_with_retry(&client, &base_url, &body)?;
-
-    Ok(())
+    send_request_with_retry(&body)
 }
 
-/// Check if the server is ready.
-fn is_server_ready(client: &reqwest::blocking::Client, base_url: &str) -> bool {
-    match client.get(base_url).timeout(Duration::from_secs(2)).send() {
-        Ok(resp) => resp.status().is_success(),
-        Err(_) => false,
+// ─────────────────── Minimal HTTP over raw TCP ───────────────────
+
+/// Send a GET / and return true if status is 2xx/3xx.
+fn is_server_ready() -> bool {
+    let Ok(mut stream) = TcpStream::connect_timeout(
+        &ADDR.parse().unwrap(),
+        CONNECT_TIMEOUT,
+    ) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(CONNECT_TIMEOUT));
+    let req = format!("GET / HTTP/1.1\r\nHost: {HOST}:{PORT}\r\nConnection: close\r\n\r\n");
+    if stream.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 32];
+    let Ok(n) = stream.read(&mut buf) else {
+        return false;
+    };
+    // Check "HTTP/1.x 2xx" or "HTTP/1.x 3xx"
+    let head = std::str::from_utf8(&buf[..n]).unwrap_or("");
+    matches!(head.get(9..10), Some("2") | Some("3"))
+}
+
+/// Send a POST / with the given body. Returns Ok if 2xx, otherwise Err with details.
+fn http_post(body: &str) -> Result<(), String> {
+    let mut stream = TcpStream::connect_timeout(
+        &ADDR.parse().unwrap(),
+        REQUEST_TIMEOUT,
+    )
+    .map_err(|e| format!("Connection failed: {e}"))?;
+
+    stream
+        .set_read_timeout(Some(REQUEST_TIMEOUT))
+        .map_err(|e| format!("Set timeout: {e}"))?;
+
+    let req = format!(
+        "POST / HTTP/1.1\r\nHost: {HOST}:{PORT}\r\nContent-Length: {}\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream
+        .write_all(req.as_bytes())
+        .map_err(|e| format!("Write failed: {e}"))?;
+
+    // Read response (we only need the status line)
+    let mut resp = vec![0u8; 4096];
+    let n = stream
+        .read(&mut resp)
+        .map_err(|e| format!("Read failed: {e}"))?;
+    let resp_str = String::from_utf8_lossy(&resp[..n]);
+
+    // Parse status code from "HTTP/1.x NNN ..."
+    let status: u16 = resp_str
+        .get(9..12)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    if (200..300).contains(&status) {
+        Ok(())
+    } else {
+        // Extract body after \r\n\r\n for error message
+        let body_part = resp_str
+            .split_once("\r\n\r\n")
+            .map(|(_, b)| b)
+            .unwrap_or(&resp_str);
+        Err(format!("Server error {status}: {body_part}"))
     }
 }
 
-/// Start the server process.
-fn start_server() -> Result<()> {
-    let exe_dir = env::current_exe()?
+// ─────────────────── Server lifecycle ───────────────────
+
+fn start_server() -> Result<(), String> {
+    let exe_dir = env::current_exe()
+        .map_err(|e| format!("Cannot determine exe path: {e}"))?
         .parent()
         .unwrap_or(&PathBuf::from("."))
         .to_path_buf();
 
-    // Look for server binary
-    let server_names = if cfg!(windows) {
-        vec!["hifisampler-server.exe"]
+    let name = if cfg!(windows) {
+        "hifisampler-server.exe"
     } else {
-        vec!["hifisampler-server"]
+        "hifisampler-server"
     };
+    let server_path = exe_dir.join(name);
 
-    let mut server_path = None;
-    for name in &server_names {
-        let path = exe_dir.join(name);
-        if path.exists() {
-            server_path = Some(path);
-            break;
-        }
+    if !server_path.exists() {
+        return Err(format!(
+            "Cannot find {name} in {}",
+            exe_dir.display()
+        ));
     }
 
-    let server_path = server_path.ok_or_else(|| {
-        anyhow::anyhow!(
-            "Cannot find hifisampler-server binary in {}",
-            exe_dir.display()
-        )
-    })?;
-
     eprintln!("Starting server: {}", server_path.display());
-
     Command::new(&server_path)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()?;
+        .spawn()
+        .map_err(|e| format!("Spawn failed: {e}"))?;
 
     Ok(())
 }
 
-/// Wait for the server to become ready.
-fn wait_for_server(client: &reqwest::blocking::Client, base_url: &str) -> Result<()> {
+fn wait_for_server() -> Result<(), String> {
     let start = Instant::now();
-    let timeout = Duration::from_secs(MAX_STARTUP_WAIT_SECS);
-
-    while start.elapsed() < timeout {
-        if is_server_ready(client, base_url) {
+    while start.elapsed() < MAX_STARTUP_WAIT {
+        if is_server_ready() {
             eprintln!("Server ready after {:.1}s", start.elapsed().as_secs_f64());
             return Ok(());
         }
         thread::sleep(Duration::from_millis(200));
     }
-
-    anyhow::bail!(
+    Err(format!(
         "Server did not become ready within {}s",
-        MAX_STARTUP_WAIT_SECS
-    );
+        MAX_STARTUP_WAIT.as_secs()
+    ))
 }
 
-/// Send inference request with retry logic.
-fn send_request_with_retry(
-    client: &reqwest::blocking::Client,
-    base_url: &str,
-    body: &str,
-) -> Result<()> {
+fn send_request_with_retry(body: &str) -> Result<(), String> {
     for attempt in 0..MAX_RETRIES {
-        match client.post(base_url).body(body.to_string()).send() {
-            Ok(resp) => {
-                let status = resp.status();
-                if status.is_success() {
-                    return Ok(());
-                }
-
-                let body_text = resp.text().unwrap_or_default();
-
-                if status == reqwest::StatusCode::SERVICE_UNAVAILABLE
-                    || status == reqwest::StatusCode::INTERNAL_SERVER_ERROR
-                {
-                    if attempt < MAX_RETRIES - 1 {
-                        eprintln!(
-                            "Request failed ({}), retrying ({}/{})",
-                            status,
-                            attempt + 1,
-                            MAX_RETRIES
-                        );
-                        thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
-                        continue;
-                    }
-                }
-
-                anyhow::bail!("Server error {}: {}", status, body_text);
-            }
+        match http_post(body) {
+            Ok(()) => return Ok(()),
             Err(e) => {
                 if attempt < MAX_RETRIES - 1 {
                     eprintln!(
-                        "Connection error, retrying ({}/{}): {}",
+                        "Request failed, retrying ({}/{}): {e}",
                         attempt + 1,
-                        MAX_RETRIES,
-                        e
+                        MAX_RETRIES
                     );
-                    thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
-                    continue;
+                    thread::sleep(RETRY_DELAY);
+                } else {
+                    return Err(format!("Failed after {MAX_RETRIES} retries: {e}"));
                 }
-                anyhow::bail!("Connection failed after {} retries: {}", MAX_RETRIES, e);
             }
         }
     }
-
-    anyhow::bail!("Failed after {} retries", MAX_RETRIES);
+    Err(format!("Failed after {MAX_RETRIES} retries"))
 }
 
-/// Platform-specific mutex for startup synchronization.
+// ─────────────────── Platform mutex ───────────────────
+
 #[cfg(windows)]
 fn acquire_startup_mutex() -> MutexGuard {
     use std::ffi::CString;
@@ -191,7 +210,7 @@ fn acquire_startup_mutex() -> MutexGuard {
         let name = CString::new("Global\\HifiSamplerServerStartupMutex_DCL_8572").unwrap();
         let handle = windows_sys::Win32::System::Threading::CreateMutexA(
             std::ptr::null_mut(),
-            0, // not initially owned
+            0,
             name.as_ptr() as *const u8,
         );
 
@@ -202,10 +221,7 @@ fn acquire_startup_mutex() -> MutexGuard {
             };
         }
 
-        windows_sys::Win32::System::Threading::WaitForSingleObject(
-            handle, 30000, // 30s timeout
-        );
-
+        windows_sys::Win32::System::Threading::WaitForSingleObject(handle, 30000);
         MutexGuard { handle }
     }
 }
@@ -230,7 +246,6 @@ impl Drop for MutexGuard {
 #[cfg(not(windows))]
 fn acquire_startup_mutex() -> MutexGuard {
     use std::fs::OpenOptions;
-
     let lock_path = std::env::temp_dir().join("hifisampler_server.lock");
     let file = OpenOptions::new()
         .write(true)
@@ -238,8 +253,6 @@ fn acquire_startup_mutex() -> MutexGuard {
         .truncate(false)
         .open(&lock_path)
         .ok();
-
-    // On Unix, we'd use flock() - simplified here
     MutexGuard { _file: file }
 }
 

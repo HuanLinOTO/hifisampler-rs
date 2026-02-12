@@ -25,7 +25,7 @@ serde_json = "1"
 serde_yaml = "0.9"
 # ONNX Runtime
 ndarray = "0.17"
-ort = {version = "2.0.0-rc.11", features = ["ndarray", "directml"]}
+ort = {version = "2.0.0-rc.11", features = ["ndarray"]}
 # Audio processing
 hound = "3.5"
 rubato = "0.16"

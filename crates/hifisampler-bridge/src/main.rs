@@ -238,7 +238,6 @@ impl Drop for MutexGuard {
 #[cfg(not(windows))]
 fn acquire_startup_mutex() -> MutexGuard {
     use std::fs::OpenOptions;
-    use std::io::Write;
 
     let lock_path = std::env::temp_dir().join("hifisampler_server.lock");
     let file = OpenOptions::new()

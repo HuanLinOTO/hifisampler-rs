@@ -65,10 +65,7 @@ fn run() -> Result<(), String> {
 
 /// Send a GET / and return true if status is 2xx/3xx.
 fn is_server_ready() -> bool {
-    let Ok(mut stream) = TcpStream::connect_timeout(
-        &ADDR.parse().unwrap(),
-        CONNECT_TIMEOUT,
-    ) else {
+    let Ok(mut stream) = TcpStream::connect_timeout(&ADDR.parse().unwrap(), CONNECT_TIMEOUT) else {
         return false;
     };
     let _ = stream.set_read_timeout(Some(CONNECT_TIMEOUT));
@@ -87,11 +84,8 @@ fn is_server_ready() -> bool {
 
 /// Send a POST / with the given body. Returns Ok if 2xx, otherwise Err with details.
 fn http_post(body: &str) -> Result<(), String> {
-    let mut stream = TcpStream::connect_timeout(
-        &ADDR.parse().unwrap(),
-        REQUEST_TIMEOUT,
-    )
-    .map_err(|e| format!("Connection failed: {e}"))?;
+    let mut stream = TcpStream::connect_timeout(&ADDR.parse().unwrap(), REQUEST_TIMEOUT)
+        .map_err(|e| format!("Connection failed: {e}"))?;
 
     stream
         .set_read_timeout(Some(REQUEST_TIMEOUT))
@@ -148,10 +142,7 @@ fn start_server() -> Result<(), String> {
     let server_path = exe_dir.join(name);
 
     if !server_path.exists() {
-        return Err(format!(
-            "Cannot find {name} in {}",
-            exe_dir.display()
-        ));
+        return Err(format!("Cannot find {name} in {}", exe_dir.display()));
     }
 
     eprintln!("Starting server: {}", server_path.display());

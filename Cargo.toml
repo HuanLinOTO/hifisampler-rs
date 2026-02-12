@@ -46,9 +46,10 @@ reqwest = {version = "0.12", features = ["blocking"]}
 
 # ── Release profile: optimize bridge for minimal size ──
 [profile.release.package.hifisampler-bridge]
-opt-level = "z"
 codegen-units = 1
+opt-level = "z"
 strip = true
 
 [profile.release]
 lto = "thin"
+opt-level = "z"

@@ -110,7 +110,79 @@ async fn main() -> Result<()> {
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state);
 
+    
+
     info!("Server listening on http://{}", addr);
+
+    // Try to open a browser window:
+    // - if a known Chromium-like browser is present in PATH, launch it with --app="{addr}"
+    // - otherwise fall back to the platform default opener (start/open/xdg-open)
+    {
+        use std::process::Command;
+        use std::env;
+        use std::path::PathBuf;
+
+        // candidates that accept --app
+        const CANDIDATES: &[&str] = &[
+            "browser", "chrome", "google-chrome", "chromium", "brave", "msedge", "edge",
+        ];
+
+        fn path_has_exe(name: &str) -> Option<PathBuf> {
+            if let Ok(pathvar) = env::var("PATH") {
+                let paths = env::split_paths(&pathvar);
+                #[cfg(windows)]
+                let exts: Vec<String> = env::var("PATHEXT").unwrap_or_default().split(';').map(|s| s.to_string()).collect();
+                #[cfg(not(windows))]
+                let exts: Vec<String> = vec!["".to_string()];
+
+                for p in paths {
+                    #[cfg(windows)]
+                    {
+                        for ext in &exts {
+                            let mut candidate = p.join(name);
+                            candidate.set_extension(ext.trim_start_matches('.'));
+                            if candidate.exists() {
+                                return Some(candidate);
+                            }
+                        }
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        let candidate = p.join(name);
+                        if candidate.exists() && candidate.is_file() {
+                            return Some(candidate);
+                        }
+                    }
+                }
+            }
+            None
+        }
+
+        let url = format!("http://{}", addr);
+        // prefer explicit Chromium-like app with --app
+        let mut launched = false;
+        for &bin in CANDIDATES {
+            if let Some(path) = path_has_exe(bin) {
+                info!("Launching browser '{}' with --app=...", bin);
+                let _ = Command::new(path)
+                    .arg(format!("--app={}", url))
+                    .spawn();
+                launched = true;
+                break;
+            }
+        }
+
+        if !launched {
+            info!("No Chromium-like browser found in PATH — opening default browser");
+            // Cross-platform default opener
+            #[cfg(target_os = "windows")]
+            let _ = Command::new("cmd").args(["/C", "start", &url]).spawn();
+            #[cfg(target_os = "macos")]
+            let _ = Command::new("open").arg(&url).spawn();
+            #[cfg(all(unix, not(target_os = "macos")))]
+            let _ = Command::new("xdg-open").arg(&url).spawn();
+        }
+    }
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;

@@ -198,73 +198,19 @@
             flex-wrap: wrap;
         }
 
-        /* ── Bar chart ── */
-        .bars {
-            display: flex;
-            align-items: flex-end;
-            gap: 3px;
-            height: 100px;
-        }
-
-        .bars .b {
-            flex: 1;
-            min-width: 3px;
-            max-width: 16px;
-            background: var(--accent);
-            border-radius: 2px 2px 0 0;
-            transition: height .3s;
+        /* ── Time-series chart ── */
+        .chart-wrap {
             position: relative;
-            cursor: pointer;
+            height: 120px;
         }
 
-        .bars .b:hover {
-            background: var(--accent-hover);
-        }
-
-        .bars .b .tt {
-            display: none;
-            position: absolute;
-            bottom: calc(100% + 4px);
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--surface2);
-            border: 1px solid var(--border);
-            padding: 3px 6px;
-            border-radius: 4px;
-            font-size: 10px;
-            white-space: nowrap;
-            z-index: 10;
-        }
-
-        .bars .b:hover .tt {
+        .chart-wrap canvas {
+            width: 100%;
+            height: 100%;
             display: block;
         }
 
-        /* ── Percentiles ── */
-        .pcts {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 8px;
-            margin-top: 12px;
-        }
-
-        .pct {
-            text-align: center;
-            padding: 10px 4px;
-            background: var(--surface2);
-            border-radius: 6px;
-        }
-
-        .pct .lb {
-            font-size: 10px;
-            color: var(--text-dim);
-        }
-
-        .pct .vl {
-            font-size: 15px;
-            font-weight: 600;
-            margin-top: 3px;
-        }
+        /* (percentiles removed — now using canvas chart) */
 
         /* ── Breakdown ── */
         .bkd {
@@ -604,10 +550,6 @@
             .cfg-grid {
                 grid-template-columns: 1fr
             }
-
-            .pcts {
-                grid-template-columns: repeat(3, 1fr)
-            }
         }
     </style>
 </head>
@@ -657,29 +599,9 @@
                 </div>
             </div>
             <div class="sec">
-                <h2>⏱ 延迟分布</h2>
-                <div class="bars" id="chart"></div>
-                <div class="pcts">
-                    <div class="pct">
-                        <div class="lb">Min</div>
-                        <div class="vl" id="v-min">-</div>
-                    </div>
-                    <div class="pct">
-                        <div class="lb">P50</div>
-                        <div class="vl" id="v-p50">-</div>
-                    </div>
-                    <div class="pct">
-                        <div class="lb">P95</div>
-                        <div class="vl" id="v-p95">-</div>
-                    </div>
-                    <div class="pct">
-                        <div class="lb">P99</div>
-                        <div class="vl" id="v-p99">-</div>
-                    </div>
-                    <div class="pct">
-                        <div class="lb">Max</div>
-                        <div class="vl" id="v-max">-</div>
-                    </div>
+                <h2>📈 请求活动</h2>
+                <div class="chart-wrap">
+                    <canvas id="chart"></canvas>
                 </div>
             </div>
             <div class="sec">
@@ -804,6 +726,9 @@
         }
         function setOn(v) { document.getElementById('sd').className = v ? 'dot' : 'dot off'; document.getElementById('st').textContent = v ? '在线' : '离线'; }
         function $(id) { return document.getElementById(id); }
+        /* ── time-series data ── */
+        const TS_MAX = 150; // 150 points × 0.2s = 30s window
+        const tsData = [];  // [{t: Date, active: number}]
         function upMon(d) {
             $('c-req').textContent = d.total_requests;
             $('c-avg').innerHTML = d.avg_total_ms.toFixed(1) + '<span class="un">ms</span>';
@@ -811,23 +736,73 @@
             $('c-hit').innerHTML = (d.cache_hit_rate * 100).toFixed(0) + '<span class="un">%</span>';
             $('c-rps').innerHTML = d.throughput_rps.toFixed(1) + '<span class="un">rps</span>';
             $('c-err').textContent = d.total_errors;
-            $('v-min').textContent = d.min_total_ms.toFixed(1) + 'ms';
-            $('v-p50').textContent = d.p50_total_ms.toFixed(1) + 'ms';
-            $('v-p95').textContent = d.p95_total_ms.toFixed(1) + 'ms';
-            $('v-p99').textContent = d.p99_total_ms.toFixed(1) + 'ms';
-            $('v-max').textContent = d.max_total_ms.toFixed(1) + 'ms';
-            /* bar chart */
-            const ch = $('chart'), rc = d.recent;
-            if (!rc || !rc.length) { ch.innerHTML = '<div style="color:var(--text-dim);font-size:12px;display:flex;align-items:center;justify-content:center;width:100%">暂无数据</div>'; }
-            else { const mx = Math.max(...rc.map(r => r.total_ms), 1); ch.innerHTML = rc.map((r, i) => { const h = Math.max(r.total_ms / mx * 100, 2); return `<div class="b" style="height:${h}%"><div class="tt">#${i + 1}: ${r.total_ms.toFixed(1)}ms</div></div>`; }).join(''); }
+            /* time-series: record active requests */
+            tsData.push({ t: new Date(), active: d.active_requests || 0 });
+            while (tsData.length > TS_MAX) tsData.shift();
+            drawChart();
             /* breakdown */
             const bd = $('bkd'), t = d.avg_feature_ms + d.avg_synthesis_ms + d.avg_postprocess_ms;
             if (t <= 0) { bd.innerHTML = '<div style="color:var(--text-dim);font-size:12px">暂无数据</div>'; }
             else { const fp = (d.avg_feature_ms / t * 100).toFixed(0), sp = (d.avg_synthesis_ms / t * 100).toFixed(0), pp = (d.avg_postprocess_ms / t * 100).toFixed(0); bd.innerHTML = `<div class="sg f" style="flex:${fp}">${d.avg_feature_ms.toFixed(0)}ms (${fp}%)</div><div class="sg s" style="flex:${sp}">${d.avg_synthesis_ms.toFixed(0)}ms (${sp}%)</div><div class="sg p" style="flex:${pp}">${d.avg_postprocess_ms.toFixed(0)}ms (${pp}%)</div>`; }
             /* table */
-            const tb = $('tbody');
+            const rc = d.recent, tb = $('tbody');
             if (!rc || !rc.length) { tb.innerHTML = '<tr><td colspan="7" style="color:var(--text-dim);text-align:center">暂无请求</td></tr>'; }
             else { tb.innerHTML = rc.map((r, i) => `<tr><td>${i + 1}</td><td>${r.total_ms.toFixed(1)}</td><td>${r.feature_ms.toFixed(1)}</td><td>${r.synthesis_ms.toFixed(1)}</td><td>${r.postprocess_ms.toFixed(1)}</td><td>${r.output_samples}</td><td>${r.cache_hit ? '✓' : '✗'}</td></tr>`).join(''); }
+        }
+        /* ── canvas chart ── */
+        function drawChart() {
+            const canvas = $('chart');
+            const rect = canvas.parentElement.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            const W = rect.width, H = rect.height;
+            canvas.width = W * dpr; canvas.height = H * dpr;
+            const ctx = canvas.getContext('2d');
+            ctx.scale(dpr, dpr);
+            const pad = { l: 36, r: 12, t: 12, b: 24 };
+            const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
+            ctx.clearRect(0, 0, W, H);
+            if (tsData.length < 2) {
+                ctx.fillStyle = '#9ca0b4'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+                ctx.fillText('等待数据…', W / 2, H / 2);
+                return;
+            }
+            const maxY = Math.max(1, ...tsData.map(p => p.active));
+            const yTicks = Math.min(maxY, 5);
+            // grid & Y labels
+            ctx.strokeStyle = '#2e3144'; ctx.lineWidth = 1;
+            ctx.fillStyle = '#9ca0b4'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+            for (let i = 0; i <= yTicks; i++) {
+                const v = Math.round(maxY / yTicks * i);
+                const y = pad.t + ch - (v / maxY) * ch;
+                ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + cw, y); ctx.stroke();
+                ctx.fillText(v, pad.l - 4, y + 3);
+            }
+            // X labels (~5)
+            ctx.textAlign = 'center';
+            const n = tsData.length, xStep = Math.max(1, Math.floor(n / 5));
+            for (let i = 0; i < n; i += xStep) {
+                const x = pad.l + (i / (n - 1)) * cw;
+                const tt = tsData[i].t;
+                const lbl = tt.getHours().toString().padStart(2, '0') + ':' + tt.getMinutes().toString().padStart(2, '0') + ':' + tt.getSeconds().toString().padStart(2, '0');
+                ctx.fillText(lbl, x, H - 4);
+            }
+            // area fill
+            ctx.beginPath(); ctx.moveTo(pad.l, pad.t + ch);
+            for (let i = 0; i < n; i++) { ctx.lineTo(pad.l + (i / (n - 1)) * cw, pad.t + ch - (tsData[i].active / maxY) * ch); }
+            ctx.lineTo(pad.l + cw, pad.t + ch); ctx.closePath();
+            const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + ch);
+            grad.addColorStop(0, 'rgba(108,123,240,0.35)'); grad.addColorStop(1, 'rgba(108,123,240,0.02)');
+            ctx.fillStyle = grad; ctx.fill();
+            // line
+            ctx.beginPath();
+            for (let i = 0; i < n; i++) {
+                const x = pad.l + (i / (n - 1)) * cw, y = pad.t + ch - (tsData[i].active / maxY) * ch;
+                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            }
+            ctx.strokeStyle = '#6c7bf0'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+            // latest dot
+            const lx = pad.l + cw, ly = pad.t + ch - (tsData[n - 1].active / maxY) * ch;
+            ctx.beginPath(); ctx.arc(lx, ly, 3, 0, Math.PI * 2); ctx.fillStyle = '#6c7bf0'; ctx.fill();
         }
         async function resetStats() { try { await fetch(B + '/stats/reset', { method: 'POST' }); poll(); toast('统计已清空'); } catch { toast('清空失败', false); } }
         /* ══ Config ══ */
@@ -893,7 +868,7 @@
             } catch { st.innerHTML = '<div class="smsg er">❌ 连接服务器失败</div>'; toast('安装失败', false); }
         }
         /* ── init ── */
-        poll(); loadCfg(); setInterval(poll, 2000);
+        poll(); loadCfg(); setInterval(poll, 200);
     </script>
 </body>
 

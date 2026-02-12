@@ -23,7 +23,7 @@ use hifisampler_core::{
 };
 use parking_lot::Mutex;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::task;
 use tracing::{error, info};
 
@@ -55,6 +55,7 @@ struct AppState {
     cache: Arc<CacheManager>,
     stats: Arc<Mutex<StatsCollector>>,
     ready: Arc<AtomicBool>,
+    active_requests: Arc<AtomicU64>,
 }
 
 #[tokio::main]
@@ -93,6 +94,7 @@ async fn main() -> Result<()> {
         cache: Arc::new(cache),
         stats: Arc::new(Mutex::new(stats)),
         ready: Arc::new(AtomicBool::new(true)),
+        active_requests: Arc::new(AtomicU64::new(0)),
     };
 
     // Build router
@@ -149,8 +151,10 @@ async fn inference_handler(State(state): State<AppState>, body: String) -> impl 
     let models = Arc::clone(&state.models);
     let cache = Arc::clone(&state.cache);
 
+    state.active_requests.fetch_add(1, Ordering::Relaxed);
     let result =
         task::spawn_blocking(move || resampler::resample(&params, &config, &models, &cache)).await;
+    state.active_requests.fetch_sub(1, Ordering::Relaxed);
 
     match result {
         Ok(Ok(resample_stats)) => {
@@ -179,7 +183,9 @@ async fn inference_handler(State(state): State<AppState>, body: String) -> impl 
 /// GET /stats - Performance statistics.
 /// Brief lock — only reading stats, no interference with inference.
 async fn stats_handler(State(state): State<AppState>) -> impl IntoResponse {
-    let summary = state.stats.lock().summary();
+    let active = state.active_requests.load(Ordering::Relaxed);
+    let mut summary = state.stats.lock().summary();
+    summary.active_requests = active;
     (StatusCode::OK, axum::Json(summary))
 }
 

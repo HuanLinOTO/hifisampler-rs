@@ -17,6 +17,7 @@ pub struct StatsCollector {
 pub struct StatsSummary {
     pub total_requests: u64,
     pub total_errors: u64,
+    pub active_requests: u64,
     pub recent_count: usize,
     pub avg_total_ms: f64,
     pub avg_feature_ms: f64,
@@ -66,6 +67,7 @@ impl StatsCollector {
             return StatsSummary {
                 total_requests: self.total_requests,
                 total_errors: self.total_errors,
+                active_requests: 0,
                 recent_count: 0,
                 avg_total_ms: 0.0,
                 avg_feature_ms: 0.0,
@@ -118,6 +120,7 @@ impl StatsCollector {
         StatsSummary {
             total_requests: self.total_requests,
             total_errors: self.total_errors,
+            active_requests: 0,
             recent_count: count,
             avg_total_ms: avg_total,
             avg_feature_ms: avg_feat,

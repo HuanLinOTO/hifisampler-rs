@@ -12,11 +12,11 @@ env:
   CARGO_TERM_COLOR: always
   # Model archive (7z) from HuggingFace
   MODELS_URL: "https://huggingface.co/SVCFusion/things/resolve/main/hifisampler-models.7z"
-  # ONNX Runtime version for load-dynamic
-  ORT_VERSION: "1.22.0"
+  # ONNX Runtime version — must be >= 1.23.x for ort 2.0.0-rc.11
+  ORT_VERSION: "1.24.1"
 
 jobs:
-  # ────────────────────────── Build & Test ──────────────────────────
+  # ────────────────────────── Build (per-platform, one binary) ──────────────────────────
   build:
     strategy:
       fail-fast: false
@@ -24,22 +24,19 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: hifisampler-windows-x64
-            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-x64-1.22.0.zip"
-            ort_lib: "onnxruntime.dll"
+            platform: windows-x64
+            ort_main_lib: "onnxruntime.dll"
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-            artifact: hifisampler-linux-x64
-            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz"
-            ort_lib: "libonnxruntime.so"
+            platform: linux-x64
+            ort_main_lib: "libonnxruntime.so"
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: hifisampler-macos-arm64
-            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-arm64-1.22.0.tgz"
-            ort_lib: "libonnxruntime.dylib"
+            platform: macos-arm64
+            ort_main_lib: "libonnxruntime.dylib"
 
     runs-on: ${{ matrix.os }}
-    name: Build (${{ matrix.artifact }})
+    name: Build (${{ matrix.platform }})
 
     steps:
       - uses: actions/checkout@v4
@@ -60,16 +57,122 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.target }}-
 
-      # Linux: install ALSA dev headers (needed by some audio crates)
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
 
-      # ── Download ONNX Runtime shared library ──
+      - name: Build (release)
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # Download CPU ORT just for running tests
+      - name: Download ORT for tests
+        shell: bash
+        run: |
+          mkdir -p ort_test_lib
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            url="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-win-x64-${ORT_VERSION}.zip"
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            url="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+          else
+            url="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-arm64-${ORT_VERSION}.tgz"
+          fi
+          echo "Downloading ORT from $url..."
+          curl -fSL --retry 3 "$url" -o ort_archive
+          if [[ "$url" == *.zip ]]; then
+            unzip -q ort_archive -d ort_extract
+          else
+            mkdir -p ort_extract && tar xzf ort_archive -C ort_extract
+          fi
+          find ort_extract -name "${{ matrix.ort_main_lib }}" -exec cp {} ort_test_lib/ \;
+          ls -lh ort_test_lib/
+
+      - name: Run unit tests
+        shell: bash
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ort_test_lib/${{ matrix.ort_main_lib }}
+        run: cargo test --release --target ${{ matrix.target }}
+
+      # Collect binaries for upload
+      - name: Collect binaries
+        shell: bash
+        run: |
+          mkdir -p upload_bin
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp "target/${{ matrix.target }}/release/hifisampler.exe"        upload_bin/
+            cp "target/${{ matrix.target }}/release/hifisampler-server.exe" upload_bin/
+          else
+            cp "target/${{ matrix.target }}/release/hifisampler"        upload_bin/
+            cp "target/${{ matrix.target }}/release/hifisampler-server" upload_bin/
+          fi
+          ls -lh upload_bin/
+
+      # Upload compiled binaries for packaging stage
+      - name: Upload compiled binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.platform }}
+          path: upload_bin/
+
+  # ────────────────────────── Package (per-EP variant) ──────────────────────────
+  package:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Windows CPU (includes DirectML) ──
+          - os: windows-latest
+            platform: windows-x64
+            variant: cpu
+            artifact: hifisampler-windows-x64-cpu
+            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-win-x64-1.24.1.zip"
+            ort_dir: "onnxruntime-win-x64-1.24.1"
+          # ── Windows GPU (CUDA + TensorRT) ──
+          - os: windows-latest
+            platform: windows-x64
+            variant: gpu
+            artifact: hifisampler-windows-x64-gpu
+            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-win-x64-gpu-1.24.1.zip"
+            ort_dir: "onnxruntime-win-x64-gpu-1.24.1"
+          # ── Linux CPU ──
+          - os: ubuntu-24.04
+            platform: linux-x64
+            variant: cpu
+            artifact: hifisampler-linux-x64-cpu
+            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-linux-x64-1.24.1.tgz"
+            ort_dir: "onnxruntime-linux-x64-1.24.1"
+          # ── Linux GPU (CUDA + TensorRT) ──
+          - os: ubuntu-24.04
+            platform: linux-x64
+            variant: gpu
+            artifact: hifisampler-linux-x64-gpu
+            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-linux-x64-gpu-1.24.1.tgz"
+            ort_dir: "onnxruntime-linux-x64-gpu-1.24.1"
+          # ── macOS ARM64 (includes CoreML) ──
+          - os: macos-latest
+            platform: macos-arm64
+            variant: cpu
+            artifact: hifisampler-macos-arm64
+            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-osx-arm64-1.24.1.tgz"
+            ort_dir: "onnxruntime-osx-arm64-1.24.1"
+
+    runs-on: ${{ matrix.os }}
+    name: Package (${{ matrix.artifact }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Download pre-built binaries from build stage
+      - name: Download compiled binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries-${{ matrix.platform }}
+          path: binaries
+
+      # ── Download ONNX Runtime (variant-specific) ──
       - name: Download ONNX Runtime
         shell: bash
         run: |
-          mkdir -p ort_lib
           echo "Downloading ONNX Runtime from ${{ matrix.ort_url }}..."
           curl -fSL --retry 3 "${{ matrix.ort_url }}" -o ort_archive
 
@@ -79,25 +182,17 @@ jobs:
             mkdir -p ort_extract && tar xzf ort_archive -C ort_extract
           fi
 
-          # Find and copy the shared library
-          find ort_extract -name "${{ matrix.ort_lib }}" -exec cp {} ort_lib/ \;
-          # Also copy versioned symlinks on Linux
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            find ort_extract -name "libonnxruntime.so.*" -exec cp -P {} ort_lib/ \;
+          # Copy ALL shared libraries from lib/ directory (not just the main one)
+          mkdir -p ort_lib
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            find "ort_extract/${{ matrix.ort_dir }}/lib" -name "*.dll" -exec cp {} ort_lib/ \;
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            find "ort_extract/${{ matrix.ort_dir }}/lib" -name "*.so*" -exec cp -P {} ort_lib/ \;
+          else
+            find "ort_extract/${{ matrix.ort_dir }}/lib" \( -name "*.dylib" -o -name "*.dylib.*" \) -exec cp -P {} ort_lib/ \;
           fi
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            find ort_extract -name "libonnxruntime.*.dylib" -exec cp -P {} ort_lib/ \;
-          fi
+          echo "=== ORT libraries for variant '${{ matrix.variant }}' ==="
           ls -lh ort_lib/
-
-      - name: Build (release)
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Run unit tests
-        shell: bash
-        env:
-          ORT_DYLIB_PATH: ${{ github.workspace }}/ort_lib/${{ matrix.ort_lib }}
-        run: cargo test --release --target ${{ matrix.target }}
 
       # ── Download model files (7z archive from HuggingFace) ──
       - name: Download models
@@ -143,39 +238,57 @@ jobs:
           fi
           ls -lhR models/ || true
 
-      # ── Package artifacts ──
+      # ── Package (Windows) ──
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $out = "dist/${{ matrix.artifact }}"
           New-Item -ItemType Directory -Force -Path $out
-          Copy-Item "target/${{ matrix.target }}/release/hifisampler.exe"        "$out/"
-          Copy-Item "target/${{ matrix.target }}/release/hifisampler-server.exe" "$out/"
-          Copy-Item "config.default.yaml"  "$out/"
-          Copy-Item "README.md"            "$out/"
-          # Bundle ONNX Runtime
-          if (Test-Path "ort_lib") { Copy-Item -Recurse "ort_lib/*" "$out/" }
+
+          # Binaries (from build stage artifact — flat directory)
+          Copy-Item "binaries/hifisampler-server.exe" "$out/"
+          Copy-Item "binaries/hifisampler.exe"        "$out/"
+
+          # Config & docs
+          Copy-Item "config.default.yaml" "$out/"
+          Copy-Item "README.md"           "$out/"
+
+          # ALL ONNX Runtime DLLs (onnxruntime.dll, providers_shared, providers_cuda, etc.)
+          if (Test-Path "ort_lib") { Copy-Item "ort_lib/*" "$out/" }
+
+          # WebUI & models
           if (Test-Path "webui") { Copy-Item -Recurse "webui" "$out/webui" }
           if (Test-Path "models") { Copy-Item -Recurse "models" "$out/models" }
+
           Compress-Archive -Path "$out/*" -DestinationPath "dist/${{ matrix.artifact }}.zip"
 
+      # ── Package (Linux/macOS) ──
       - name: Package (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
           out="dist/${{ matrix.artifact }}"
           mkdir -p "$out"
-          cp "target/${{ matrix.target }}/release/hifisampler"        "$out/"
-          cp "target/${{ matrix.target }}/release/hifisampler-server" "$out/"
+
+          # Binaries (from build stage artifact — flat directory)
+          cp "binaries/hifisampler-server" "$out/"
+          cp "binaries/hifisampler"        "$out/"
+          chmod +x "$out/hifisampler-server" "$out/hifisampler"
+
+          # Config & docs
           cp config.default.yaml "$out/"
           cp README.md           "$out/"
-          # Bundle ONNX Runtime
+
+          # ALL ORT shared libraries
           [ -d ort_lib ] && cp -P ort_lib/* "$out/"
+
+          # WebUI & models
           [ -d webui ] && cp -r webui "$out/webui"
           [ -d models ] && cp -r models "$out/models"
+
           cd dist && tar czf "${{ matrix.artifact }}.tar.gz" "${{ matrix.artifact }}"
 
-      - name: Upload build artifact
+      - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -186,7 +299,7 @@ jobs:
 
   # ────────────────────────── Release ──────────────────────────
   release:
-    needs: build
+    needs: package
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:

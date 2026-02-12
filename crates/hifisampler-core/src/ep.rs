@@ -1,12 +1,15 @@
 //! Execution provider configuration for ONNX Runtime sessions.
 //!
-//! Supports: CUDA, TensorRT, DirectML, CoreML, ROCm, OpenVINO, CANN, and CPU.
+//! Supports: CUDA, TensorRT, DirectML, CoreML, and CPU.
 //! Uses `load-dynamic` feature so that all EPs are available at runtime if the
 //! user provides an appropriate `onnxruntime` shared library.
+//!
+//! Note: ROCm EP was removed from ONNX Runtime 1.23+. AMD users should use
+//! MIGraphX EP or the DirectML EP (which also supports AMD GPUs on Windows).
 
 use ort::execution_providers::{
     CUDAExecutionProvider, CoreMLExecutionProvider, DirectMLExecutionProvider,
-    ExecutionProviderDispatch, ROCmExecutionProvider, TensorRTExecutionProvider,
+    ExecutionProviderDispatch, TensorRTExecutionProvider,
 };
 use tracing::{info, warn};
 
@@ -20,7 +23,6 @@ use tracing::{info, warn};
 /// - `"tensorrt"` — NVIDIA TensorRT (falls back to CUDA).
 /// - `"directml"` / `"dml"` — Microsoft DirectML (Windows).
 /// - `"coreml"` — Apple CoreML (macOS / iOS).
-/// - `"rocm"` — AMD ROCm.
 /// - Any other value is treated as `"cpu"` with a warning.
 pub fn build_execution_providers(device: &str) -> Vec<ExecutionProviderDispatch> {
     let device_lower = device.to_lowercase();
@@ -54,14 +56,10 @@ pub fn build_execution_providers(device: &str) -> Vec<ExecutionProviderDispatch>
             info!("Device=coreml: registering CoreML execution provider");
             vec![CoreMLExecutionProvider::default().build()]
         }
-        "rocm" => {
-            info!("Device=rocm: registering ROCm execution provider");
-            vec![ROCmExecutionProvider::default().build()]
-        }
         other => {
             warn!(
                 "Unknown device '{}', falling back to CPU. \
-                 Supported: auto, cpu, cuda, tensorrt, directml, coreml, rocm",
+                 Supported: auto, cpu, cuda, tensorrt, directml, coreml",
                 other
             );
             vec![]
@@ -98,14 +96,6 @@ fn auto_providers() -> Vec<ExecutionProviderDispatch> {
     // DirectML (Windows only)
     if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
         eps.push(DirectMLExecutionProvider::default().build());
-    }
-
-    // ROCm (Linux only)
-    if cfg!(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64")
-    )) {
-        eps.push(ROCmExecutionProvider::default().build());
     }
 
     // CoreML (macOS / iOS)

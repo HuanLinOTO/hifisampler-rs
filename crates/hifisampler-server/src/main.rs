@@ -110,24 +110,74 @@ async fn main() -> Result<()> {
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state);
 
-    
-
     info!("Server listening on http://{}", addr);
 
     // Try to open a browser window:
     // - if a known Chromium-like browser is present in PATH, launch it with --app="{addr}"
     // - otherwise fall back to the platform default opener (start/open/xdg-open)
     {
-        use std::process::Command;
         use std::env;
         use std::path::PathBuf;
+        use std::process::Command;
 
-        // candidates that accept --app
+        // candidates that accept --app (names normalized below)
         const CANDIDATES: &[&str] = &[
-            "browser", "chrome", "google-chrome", "chromium", "brave", "msedge", "edge",
+            "chrome.exe",
+            "msedge.exe",
+            "brave.exe",
+            "chromium.exe",
+            "google-chrome",
+            "browser",
+            "edge",
         ];
 
+        // On Windows prefer querying HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
+        #[cfg(windows)]
+        fn find_in_app_paths(exe: &str) -> Option<PathBuf> {
+            use winreg::enums::HKEY_LOCAL_MACHINE;
+            use winreg::RegKey;
+            let hk = RegKey::predef(HKEY_LOCAL_MACHINE);
+            let base = r"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths";
+            let candidates = [
+                format!("{}\\{}", base, exe),
+                format!("{}\\{}", base, exe.to_lowercase()),
+            ];
+            for k in &candidates {
+                if let Ok(sub) = hk.open_subkey(k) {
+                    // Default value or 'Path' value may contain the full exe path
+                    if let Ok(path_str) = sub.get_value::<String, _>("") {
+                        let p = PathBuf::from(path_str);
+                        if p.exists() {
+                            return Some(p);
+                        }
+                    }
+                    if let Ok(path_str) = sub.get_value::<String, _>("Path") {
+                        let p = PathBuf::from(path_str);
+                        if p.exists() {
+                            return Some(p);
+                        }
+                    }
+                }
+            }
+            None
+        }
+
         fn path_has_exe(name: &str) -> Option<PathBuf> {
+            // Windows: check registry App Paths first
+            #[cfg(windows)]
+            {
+                if let Some(p) = find_in_app_paths(name) {
+                    return Some(p);
+                }
+                // Also try with and without .exe variations
+                if !name.ends_with(".exe") {
+                    let try_name = format!("{}.exe", name);
+                    if let Some(p) = find_in_app_paths(&try_name) {
+                        return Some(p);
+                    }
+                }
+            }
+
             if let Ok(pathvar) = env::var("PATH") {
                 let paths = env::split_paths(&pathvar);
                 #[cfg(windows)]
@@ -164,16 +214,14 @@ async fn main() -> Result<()> {
         for &bin in CANDIDATES {
             if let Some(path) = path_has_exe(bin) {
                 info!("Launching browser '{}' with --app=...", bin);
-                let _ = Command::new(path)
-                    .arg(format!("--app={}", url))
-                    .spawn();
+                let _ = Command::new(path).arg(format!("--app={}", url)).spawn();
                 launched = true;
                 break;
             }
         }
 
         if !launched {
-            info!("No Chromium-like browser found in PATH — opening default browser");
+            info!("No Chromium-like browser found in PATH / App Paths — opening default browser");
             // Cross-platform default opener
             #[cfg(target_os = "windows")]
             let _ = Command::new("cmd").args(["/C", "start", &url]).spawn();

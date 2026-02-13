@@ -46,16 +46,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Cache cargo registry & build
-        uses: actions/cache@v4
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.target }}-
+          key: ${{ matrix.target }}
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -114,8 +108,68 @@ jobs:
           path: upload_bin/
 
   # ────────────────────────── Package (per-EP variant) ──────────────────────────
+  prepare-models:
+    runs-on: ubuntu-24.04
+    name: Prepare shared models
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache shared models
+        id: cache-models
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: shared-models-v1
+
+      - name: Download models
+        if: steps.cache-models.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          echo "Downloading model archive from HuggingFace..."
+          curl -fSL --retry 3 "$MODELS_URL" -o hifisampler-models.7z || {
+            echo "::warning::Model archive download failed, using empty models directory"
+            mkdir -p models
+            exit 0
+          }
+
+          # Extract 7z archive
+          if command -v 7z &>/dev/null; then
+            7z x hifisampler-models.7z -omodels_extract -y
+          elif command -v 7zz &>/dev/null; then
+            7zz x hifisampler-models.7z -omodels_extract -y
+          else
+            sudo apt-get update && sudo apt-get install -y p7zip-full
+            7z x hifisampler-models.7z -omodels_extract -y
+          fi
+
+          # Map extracted directories to expected structure
+          mkdir -p models/vocoder models/hnsep
+          if [ -f "models_extract/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/model.onnx" ]; then
+            cp "models_extract/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/model.onnx" models/vocoder/model.onnx
+            echo "✓ Vocoder model copied"
+          else
+            echo "::warning::Vocoder model.onnx not found in archive"
+          fi
+          if [ -f "models_extract/vr/model.onnx" ]; then
+            cp "models_extract/vr/model.onnx" models/hnsep/model.onnx
+            echo "✓ HN-SEP model copied"
+          elif [ -f "models_extract/vr/model.pt" ]; then
+            echo "::warning::Only model.pt found for HN-SEP (no ONNX), skipping"
+          else
+            echo "::warning::HN-SEP model not found in archive"
+          fi
+          ls -lhR models/ || true
+
+      - name: Upload shared models artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-models
+          path: models/
+          if-no-files-found: warn
+
   package:
-    needs: build
+    needs: [build, prepare-models]
     strategy:
       fail-fast: false
       matrix:
@@ -183,9 +237,27 @@ jobs:
           name: binaries-${{ matrix.platform }}
           path: binaries
 
+      - name: Download shared models artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: shared-models
+          path: models
+
+      - name: Cache ORT libraries
+        id: cache-ort
+        uses: actions/cache@v4
+        with:
+          path: |
+            ort_lib
+            ort_extract
+            ort_archive
+            ort_nuget.nupkg
+            ort_nuget_extract
+          key: ${{ runner.os }}-ort-${{ matrix.platform }}-${{ matrix.variant }}-${{ matrix.ort_source }}-${{ env.ORT_VERSION }}-${{ matrix.nuget_ver }}
+
       # ── Download ONNX Runtime from GitHub releases ──
       - name: Download ORT (GitHub Release)
-        if: matrix.ort_source == 'github'
+        if: matrix.ort_source == 'github' && steps.cache-ort.outputs.cache-hit != 'true'
         shell: bash
         run: |
           echo "Downloading ONNX Runtime from ${{ matrix.ort_url }}..."
@@ -211,7 +283,7 @@ jobs:
 
       # ── Download ONNX Runtime from NuGet (for DirectML) ──
       - name: Download ORT (NuGet)
-        if: matrix.ort_source == 'nuget'
+        if: matrix.ort_source == 'nuget' && steps.cache-ort.outputs.cache-hit != 'true'
         shell: bash
         run: |
           echo "Downloading ${{ matrix.nuget_pkg }} v${{ matrix.nuget_ver }} from NuGet..."
@@ -227,50 +299,6 @@ jobs:
           find "ort_nuget_extract/runtimes/${{ matrix.nuget_rid }}/native" -name "*.dll" -exec cp {} ort_lib/ \;
           echo "=== ORT libraries for variant '${{ matrix.variant }}' (NuGet) ==="
           ls -lh ort_lib/
-
-      # ── Download model files (7z archive from HuggingFace) ──
-      - name: Download models
-        shell: bash
-        run: |
-          echo "Downloading model archive from HuggingFace..."
-          curl -fSL --retry 3 "$MODELS_URL" -o hifisampler-models.7z || {
-            echo "::warning::Model archive download failed, skipping"
-            exit 0
-          }
-
-          # Extract 7z archive
-          if command -v 7z &>/dev/null; then
-            7z x hifisampler-models.7z -omodels_extract -y
-          elif command -v 7zz &>/dev/null; then
-            7zz x hifisampler-models.7z -omodels_extract -y
-          else
-            echo "Installing 7z..."
-            if [[ "${{ runner.os }}" == "Linux" ]]; then
-              sudo apt-get install -y p7zip-full
-            elif [[ "${{ runner.os }}" == "macOS" ]]; then
-              brew install p7zip
-            fi
-            7z x hifisampler-models.7z -omodels_extract -y
-          fi
-
-          # Map extracted directories to expected structure
-          mkdir -p models/vocoder models/hnsep
-          if [ -f "models_extract/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/model.onnx" ]; then
-            cp "models_extract/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/model.onnx" models/vocoder/model.onnx
-            echo "✓ Vocoder model copied"
-          else
-            echo "::warning::Vocoder model.onnx not found in archive"
-            find models_extract -name "*.onnx" || true
-          fi
-          if [ -f "models_extract/vr/model.onnx" ]; then
-            cp "models_extract/vr/model.onnx" models/hnsep/model.onnx
-            echo "✓ HN-SEP model copied"
-          elif [ -f "models_extract/vr/model.pt" ]; then
-            echo "::warning::Only model.pt found for HN-SEP (no ONNX), skipping"
-          else
-            echo "::warning::HN-SEP model not found in archive"
-          fi
-          ls -lhR models/ || true
 
       # ── Package (Windows) ──
       - name: Package (Windows)

@@ -21,6 +21,7 @@
 #ifndef MyAppVersion
   #define MyAppVersion "0.1.0"
 #endif
+#define MyAppVersionFileSafe StringChange(StringChange(MyAppVersion, "/", "-"), "\\", "-")
 #define MyAppPublisher "OpenHachimi"
 #define MyAppURL "https://github.com/openhachimi/hifisampler"
 #define MyAppExeName "hifisampler-server.exe"
@@ -40,7 +41,7 @@ AllowNoIcons=yes
 LicenseFile={#SourceDir}\LICENSE
 #endif
 OutputDir=output
-OutputBaseFilename=HiFiSampler-{#MyAppVersion}-{#Variant}-Setup
+OutputBaseFilename=HiFiSampler-{#MyAppVersionFileSafe}-{#Variant}-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern

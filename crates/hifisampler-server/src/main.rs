@@ -24,6 +24,7 @@ use hifisampler_core::{
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::task;
 use tracing::{error, info};
 
@@ -45,6 +46,14 @@ struct Args {
     /// Override port
     #[arg(long)]
     port: Option<u16>,
+
+    /// Run in bridge-managed mode (auto shutdown when idle)
+    #[arg(long, default_value_t = false)]
+    managed: bool,
+
+    /// Auto shutdown timeout in seconds for managed mode
+    #[arg(long, default_value_t = 600)]
+    idle_timeout_secs: u64,
 }
 
 /// Decomposed application state — each component is independently wrapped
@@ -58,6 +67,11 @@ struct AppState {
     stats: Arc<Mutex<StatsCollector>>,
     ready: Arc<AtomicBool>,
     active_requests: Arc<AtomicU64>,
+    managed: bool,
+    idle_timeout_secs: u64,
+    last_activity_unix: Arc<AtomicU64>,
+    shutdown_requested: Arc<AtomicBool>,
+    shutdown_tx: tokio::sync::watch::Sender<bool>,
 }
 
 #[tokio::main]
@@ -88,6 +102,7 @@ async fn main() -> Result<()> {
     let models = Models::load(&config)?;
     let cache = CacheManager::new();
     let stats = StatsCollector::new();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     let state = AppState {
         config: Arc::new(config),
@@ -97,16 +112,52 @@ async fn main() -> Result<()> {
         stats: Arc::new(Mutex::new(stats)),
         ready: Arc::new(AtomicBool::new(true)),
         active_requests: Arc::new(AtomicU64::new(0)),
+        managed: args.managed,
+        idle_timeout_secs: args.idle_timeout_secs,
+        last_activity_unix: Arc::new(AtomicU64::new(now_unix_secs())),
+        shutdown_requested: Arc::new(AtomicBool::new(false)),
+        shutdown_tx,
     };
+
+    if state.managed {
+        info!(
+            "Managed mode enabled (idle timeout: {}s)",
+            state.idle_timeout_secs
+        );
+        let watchdog_state = state.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                if watchdog_state.shutdown_requested.load(Ordering::Relaxed) {
+                    break;
+                }
+                let active = watchdog_state.active_requests.load(Ordering::Relaxed);
+                if active > 0 {
+                    continue;
+                }
+                let idle = now_unix_secs()
+                    .saturating_sub(watchdog_state.last_activity_unix.load(Ordering::Relaxed));
+                if idle >= watchdog_state.idle_timeout_secs {
+                    request_shutdown(
+                        &watchdog_state,
+                        &format!("managed idle timeout reached ({}s)", idle),
+                    );
+                    break;
+                }
+            }
+        });
+    }
 
     // Build router
     let app = Router::new()
         .route("/", get(health_check))
         .route("/", post(inference_handler))
+        .route("/refresh", get(refresh_handler))
         .route("/stats", get(stats_handler))
         .route("/stats/reset", post(stats_reset_handler))
         .route("/config", get(config_handler))
         .route("/config", put(config_save_handler))
+        .route("/shutdown", post(shutdown_handler))
         .route("/install-bridge", post(install_bridge_handler))
         .nest_service("/ui", tower_http::services::ServeDir::new("webui"))
         .layer(tower_http::cors::CorsLayer::permissive())
@@ -117,7 +168,7 @@ async fn main() -> Result<()> {
     // Try to open a browser window:
     // - if a known Chromium-like browser is present in PATH, launch it with --app="{addr}"
     // - otherwise fall back to the platform default opener (start/open/xdg-open)
-    {
+    if !args.managed {
         use std::env;
         use std::path::PathBuf;
         use std::process::Command;
@@ -220,7 +271,10 @@ async fn main() -> Result<()> {
         for &bin in CANDIDATES {
             if let Some(path) = path_has_exe(bin) {
                 info!("Launching browser '{}' with --app=...", bin);
-                let _ = Command::new(path).arg(format!("--app={}", url)).spawn();
+                let _ = Command::new(path)
+                    .arg(format!("--app={}", url))
+                    .arg("--window-size=1280,720")
+                    .spawn();
                 launched = true;
                 break;
             }
@@ -239,7 +293,12 @@ async fn main() -> Result<()> {
     }
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    let mut shutdown_rx_wait = shutdown_rx.clone();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx_wait.changed().await;
+        })
+        .await?;
 
     Ok(())
 }
@@ -261,6 +320,9 @@ async fn health_check(State(state): State<AppState>) -> Response {
 /// Clones Arc refs into `spawn_blocking` — no global Mutex lock.
 /// Models internally use per-model Mutex (only locked for actual ONNX calls).
 async fn inference_handler(State(state): State<AppState>, body: String) -> impl IntoResponse {
+    state
+        .last_activity_unix
+        .store(now_unix_secs(), Ordering::Relaxed);
     let body = body.trim().to_string();
 
     // Parse params (cheap, no lock needed)
@@ -306,6 +368,16 @@ async fn inference_handler(State(state): State<AppState>, body: String) -> impl 
     }
 }
 
+async fn shutdown_handler(State(state): State<AppState>) -> impl IntoResponse {
+    request_shutdown(&state, "requested from WebUI");
+    (StatusCode::OK, "Shutting down")
+}
+
+async fn refresh_handler() -> impl IntoResponse {
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    (StatusCode::OK, "refresh")
+}
+
 /// GET /stats - Performance statistics.
 /// Brief lock — only reading stats, no interference with inference.
 async fn stats_handler(State(state): State<AppState>) -> impl IntoResponse {
@@ -319,6 +391,25 @@ async fn stats_handler(State(state): State<AppState>) -> impl IntoResponse {
 async fn stats_reset_handler(State(state): State<AppState>) -> impl IntoResponse {
     state.stats.lock().reset();
     (StatusCode::OK, "Stats reset")
+}
+
+fn request_shutdown(state: &AppState, reason: &str) {
+    if state
+        .shutdown_requested
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        state.ready.store(false, Ordering::Relaxed);
+        info!("Shutdown requested: {}", reason);
+        let _ = state.shutdown_tx.send(true);
+    }
+}
+
+fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 /// GET /config - Current configuration.

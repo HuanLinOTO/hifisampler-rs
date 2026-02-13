@@ -27,6 +27,7 @@ const RETRY_DELAY: Duration = Duration::from_millis(500);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const SERVER_PATH_CONFIG_FILE: &str = "hifisampler-server.path";
+const MANAGED_IDLE_TIMEOUT_SECS: u64 = 600;
 
 fn main() {
     if let Err(msg) = run() {
@@ -138,6 +139,9 @@ fn start_server() -> Result<(), String> {
 
     eprintln!("Starting server: {}", server_path.display());
     Command::new(&server_path)
+        .arg("--managed")
+        .arg("--idle-timeout-secs")
+        .arg(MANAGED_IDLE_TIMEOUT_SECS.to_string())
         .current_dir(&server_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null())

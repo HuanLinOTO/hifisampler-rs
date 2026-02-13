@@ -562,6 +562,7 @@
             <div class="dot" id="sd"></div><span id="st">连接中…</span>
         </div>
         <div class="spacer"></div>
+        <button class="btn btn-no" id="exitBtn" onclick="exitApp()">退出</button>
         <div class="ver">v0.1.0</div>
     </div>
     <div class="nav">
@@ -805,6 +806,32 @@
             ctx.beginPath(); ctx.arc(lx, ly, 3, 0, Math.PI * 2); ctx.fillStyle = '#6c7bf0'; ctx.fill();
         }
         async function resetStats() { try { await fetch(B + '/stats/reset', { method: 'POST' }); poll(); toast('统计已清空'); } catch { toast('清空失败', false); } }
+        async function fetchWithTimeout(url, ms, opt = {}) {
+            const ac = new AbortController();
+            const t = setTimeout(() => ac.abort(), ms);
+            try {
+                return await fetch(url, { ...opt, signal: ac.signal, cache: 'no-store' });
+            } finally {
+                clearTimeout(t);
+            }
+        }
+        async function exitApp() {
+            const btn = $('exitBtn');
+            btn.disabled = true;
+            btn.textContent = '退出中...';
+            try {
+                await fetchWithTimeout(B + '/refresh?ts=' + Date.now(), 3000);
+            } catch (_) {
+                // expected timeout after 3s
+            }
+            try {
+                await fetchWithTimeout(B + '/shutdown', 3000, { method: 'POST' });
+            } catch (_) {
+                // server may already be shutting down
+            }
+            window.close();
+            setTimeout(() => { location.href = 'about:blank'; }, 200);
+        }
         /* ══ Config ══ */
         const SCH = {
             sample_rate: { l: '采样率', t: 'number', g: '音频' },

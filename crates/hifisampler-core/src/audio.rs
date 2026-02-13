@@ -530,7 +530,7 @@ pub fn akima_interp_f64(x_old: &[f64], y_old: &[f64], x_new: &[f64]) -> Vec<f64>
     let mut t_vals: Vec<f64> = Vec::with_capacity(n);
     for i in 0..n {
         let w1 = dm[i + 2]; // |m[i+3] - m[i+2]|
-        let w2 = dm[i];     // |m[i+1] - m[i]|
+        let w2 = dm[i]; // |m[i+1] - m[i]|
         let f12 = w1 + w2;
         if f12 > threshold {
             t_vals.push((w1 * m_ext[i + 1] + w2 * m_ext[i + 2]) / f12);

@@ -29,6 +29,8 @@ use tracing::{error, info};
 
 use crate::stats::StatsCollector;
 
+const BRIDGE_SERVER_PATH_FILE: &str = "hifisampler-server.path";
+
 #[derive(Parser, Debug)]
 #[command(name = "hifisampler-server", about = "HiFiSampler inference server")]
 struct Args {
@@ -134,8 +136,8 @@ async fn main() -> Result<()> {
         // On Windows prefer querying HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
         #[cfg(windows)]
         fn find_in_app_paths(exe: &str) -> Option<PathBuf> {
-            use winreg::enums::HKEY_LOCAL_MACHINE;
             use winreg::RegKey;
+            use winreg::enums::HKEY_LOCAL_MACHINE;
             let hk = RegKey::predef(HKEY_LOCAL_MACHINE);
             let base = r"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths";
             let candidates = [
@@ -181,7 +183,11 @@ async fn main() -> Result<()> {
             if let Ok(pathvar) = env::var("PATH") {
                 let paths = env::split_paths(&pathvar);
                 #[cfg(windows)]
-                let exts: Vec<String> = env::var("PATHEXT").unwrap_or_default().split(';').map(|s| s.to_string()).collect();
+                let exts: Vec<String> = env::var("PATHEXT")
+                    .unwrap_or_default()
+                    .split(';')
+                    .map(|s| s.to_string())
+                    .collect();
                 #[cfg(not(windows))]
                 let exts: Vec<String> = vec!["".to_string()];
 
@@ -397,14 +403,30 @@ async fn install_bridge_handler(
     let dest = target_dir.join(bridge_name);
     match std::fs::copy(&bridge_src, &dest) {
         Ok(_) => {
+            let server_abs = server_exe.canonicalize().unwrap_or(server_exe.clone());
+            let path_file = target_dir.join(BRIDGE_SERVER_PATH_FILE);
+            if let Err(e) = std::fs::write(&path_file, format!("{}\n", server_abs.display())) {
+                error!("Bridge server path file write failed: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    axum::Json(
+                        serde_json::json!({"error": format!("写入 {} 失败: {}", path_file.display(), e)}),
+                    ),
+                );
+            }
+
             info!(
-                "Bridge installed: {} -> {}",
+                "Bridge installed: {} -> {} (server path file: {})",
                 bridge_src.display(),
-                dest.display()
+                dest.display(),
+                path_file.display()
             );
             (
                 StatusCode::OK,
-                axum::Json(serde_json::json!({"message": format!("已安装到 {}", dest.display())})),
+                axum::Json(serde_json::json!({
+                    "message": format!("已安装到 {}", dest.display()),
+                    "server_path_file": path_file.display().to_string(),
+                })),
             )
         }
         Err(e) => {

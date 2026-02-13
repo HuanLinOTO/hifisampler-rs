@@ -337,11 +337,19 @@ mod tests {
         // UTAU sends tempo with '!' prefix: "!120", "!150", etc.
         let raw = r"C:\test\input.wav C:\test\output.wav C4 100 g0 0 1000 100 -500 100 0 !150 AA";
         let params = UtauParams::parse(raw).unwrap();
-        assert!((params.tempo - 150.0).abs() < 0.01, "tempo should be 150, got {}", params.tempo);
+        assert!(
+            (params.tempo - 150.0).abs() < 0.01,
+            "tempo should be 150, got {}",
+            params.tempo
+        );
 
         // Without '!' prefix should also work
         let raw2 = r"C:\test\input.wav C:\test\output.wav C4 100 g0 0 1000 100 -500 100 0 120 AA";
         let params2 = UtauParams::parse(raw2).unwrap();
-        assert!((params2.tempo - 120.0).abs() < 0.01, "tempo should be 120, got {}", params2.tempo);
+        assert!(
+            (params2.tempo - 120.0).abs() < 0.01,
+            "tempo should be 120, got {}",
+            params2.tempo
+        );
     }
 }

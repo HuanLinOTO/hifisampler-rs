@@ -10,9 +10,10 @@
 //! 3. Forward UTAU resample parameters via HTTP POST /
 
 use std::env;
+use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -25,6 +26,7 @@ const MAX_RETRIES: u32 = 3;
 const RETRY_DELAY: Duration = Duration::from_millis(500);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+const SERVER_PATH_CONFIG_FILE: &str = "hifisampler-server.path";
 
 fn main() {
     if let Err(msg) = run() {
@@ -128,31 +130,78 @@ fn http_post(body: &str) -> Result<(), String> {
 // ─────────────────── Server lifecycle ───────────────────
 
 fn start_server() -> Result<(), String> {
-    let exe_dir = env::current_exe()
-        .map_err(|e| format!("Cannot determine exe path: {e}"))?
+    let server_path = resolve_server_path()?;
+    let server_dir = server_path
         .parent()
-        .unwrap_or(&PathBuf::from("."))
-        .to_path_buf();
-
-    let name = if cfg!(windows) {
-        "hifisampler-server.exe"
-    } else {
-        "hifisampler-server"
-    };
-    let server_path = exe_dir.join(name);
-
-    if !server_path.exists() {
-        return Err(format!("Cannot find {name} in {}", exe_dir.display()));
-    }
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
 
     eprintln!("Starting server: {}", server_path.display());
     Command::new(&server_path)
+        .current_dir(&server_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Spawn failed: {e}"))?;
 
     Ok(())
+}
+
+fn resolve_server_path() -> Result<PathBuf, String> {
+    let bridge_exe = env::current_exe().map_err(|e| format!("Cannot determine exe path: {e}"))?;
+    let exe_dir = bridge_exe
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let cfg_path = exe_dir.join(SERVER_PATH_CONFIG_FILE);
+    if cfg_path.exists() {
+        let raw = fs::read_to_string(&cfg_path)
+            .map_err(|e| format!("Cannot read {}: {e}", cfg_path.display()))?;
+        let line = raw
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty() && !line.starts_with('#'))
+            .ok_or_else(|| {
+                format!(
+                    "{} is empty. Expected first non-empty line to be server path.",
+                    cfg_path.display()
+                )
+            })?;
+
+        let configured = PathBuf::from(line);
+        let resolved = if configured.is_absolute() {
+            configured
+        } else {
+            exe_dir.join(configured)
+        };
+
+        if resolved.exists() {
+            return Ok(resolved);
+        }
+
+        return Err(format!(
+            "Server path from {} does not exist: {}",
+            cfg_path.display(),
+            resolved.display()
+        ));
+    }
+
+    let name = if cfg!(windows) {
+        "hifisampler-server.exe"
+    } else {
+        "hifisampler-server"
+    };
+    let fallback = exe_dir.join(name);
+    if fallback.exists() {
+        return Ok(fallback);
+    }
+
+    Err(format!(
+        "Cannot find server binary. Tried {} and {}. Install bridge from WebUI Setup first.",
+        cfg_path.display(),
+        fallback.display()
+    ))
 }
 
 fn wait_for_server() -> Result<(), String> {

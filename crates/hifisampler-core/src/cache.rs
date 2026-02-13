@@ -68,10 +68,7 @@ impl CacheManager {
 
     /// Try to load cached mel features.
     /// Returns (mel, scale) if cache exists and is valid.
-    pub fn load_mel_cache(
-        &self,
-        cache_path: &Path,
-    ) -> Option<(Array2<f32>, f32)> {
+    pub fn load_mel_cache(&self, cache_path: &Path) -> Option<(Array2<f32>, f32)> {
         let lock = self.get_lock(cache_path);
         let _guard = lock.read();
 
@@ -92,12 +89,7 @@ impl CacheManager {
     }
 
     /// Save mel features to cache (atomic write).
-    pub fn save_mel_cache(
-        &self,
-        cache_path: &Path,
-        mel: &Array2<f32>,
-        scale: f32,
-    ) -> Result<()> {
+    pub fn save_mel_cache(&self, cache_path: &Path, mel: &Array2<f32>, scale: f32) -> Result<()> {
         let lock = self.get_lock(cache_path);
         let _guard = lock.write();
 

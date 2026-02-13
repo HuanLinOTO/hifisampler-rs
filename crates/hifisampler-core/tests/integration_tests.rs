@@ -6,14 +6,19 @@ use std::path::PathBuf;
 fn test_mel_filterbank_matches_python_slaney() {
     // Load Python reference filterbank
     let ref_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap()
-        .parent().unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
         .join("tests")
         .join("reference_data")
         .join("mel_filterbank_slaney.npy");
 
     if !ref_path.exists() {
-        eprintln!("Reference filterbank not found at {:?}, skipping test", ref_path);
+        eprintln!(
+            "Reference filterbank not found at {:?}, skipping test",
+            ref_path
+        );
         eprintln!("Run: python tests/validate_pipeline.py to generate reference data");
         return;
     }
@@ -30,7 +35,8 @@ fn test_mel_filterbank_matches_python_slaney() {
     assert!(
         (actual - expected).abs() < 1e-5,
         "DRC mismatch: got {} expected {}",
-        actual, expected
+        actual,
+        expected
     );
     eprintln!("DRC(0.5) = {} (expected {})", actual, expected);
 }
@@ -55,7 +61,9 @@ fn test_drc_values() {
         assert!(
             (actual - expected_val).abs() < 1e-5,
             "DRC({}) = {} (expected {})",
-            input, actual, expected_val
+            input,
+            actual,
+            expected_val
         );
     }
 }
@@ -71,7 +79,10 @@ fn test_pitchbend_matches_python() {
     assert_eq!(decode_pitchbend("AAAAAA"), vec![0, 0, 0, 0]);
 
     // Python: 'AAAAAA#3#BABA' → [0,0,0,0,0,0,64,64,0]
-    assert_eq!(decode_pitchbend("AAAAAA#3#BABA"), vec![0, 0, 0, 0, 0, 0, 64, 64, 0]);
+    assert_eq!(
+        decode_pitchbend("AAAAAA#3#BABA"),
+        vec![0, 0, 0, 0, 0, 0, 64, 64, 0]
+    );
 
     // Python: 'BABA' → [64, 64, 0]
     assert_eq!(decode_pitchbend("BABA"), vec![64, 64, 0]);
@@ -79,7 +90,7 @@ fn test_pitchbend_matches_python() {
 
 #[test]
 fn test_note_midi_conversion() {
-    use hifisampler_core::parse_utau::{note_to_midi, midi_to_hz};
+    use hifisampler_core::parse_utau::{midi_to_hz, note_to_midi};
 
     assert_eq!(note_to_midi("C4"), Some(60));
     assert_eq!(note_to_midi("A4"), Some(69));
@@ -109,7 +120,7 @@ fn test_interp1d() {
 fn test_velocity_calculation() {
     // Python: vel = np.exp2(1 - velocity / 100)
     let test_cases = vec![
-        (50.0, 2.0f64.powf(1.0 - 50.0 / 100.0)),  // ~1.4142
+        (50.0, 2.0f64.powf(1.0 - 50.0 / 100.0)),   // ~1.4142
         (100.0, 2.0f64.powf(1.0 - 100.0 / 100.0)), // 1.0
         (150.0, 2.0f64.powf(1.0 - 150.0 / 100.0)), // ~0.7071
     ];
@@ -119,7 +130,9 @@ fn test_velocity_calculation() {
         assert!(
             (vel - expected).abs() < 1e-10,
             "velocity={}: got {} expected {}",
-            velocity, vel, expected
+            velocity,
+            vel,
+            expected
         );
     }
 }

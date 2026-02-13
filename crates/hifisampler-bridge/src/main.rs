@@ -159,6 +159,7 @@ fn resolve_server_path() -> Result<PathBuf, String> {
         .unwrap_or_else(|| PathBuf::from("."));
 
     let cfg_path = exe_dir.join(SERVER_PATH_CONFIG_FILE);
+    let expected_name = expected_server_binary_name();
     if cfg_path.exists() {
         let raw = fs::read_to_string(&cfg_path)
             .map_err(|e| format!("Cannot read {}: {e}", cfg_path.display()))?;
@@ -181,7 +182,7 @@ fn resolve_server_path() -> Result<PathBuf, String> {
             exe_dir.join(configured)
         };
 
-        if resolved.exists() {
+        if is_trusted_server_binary(&resolved, expected_name) {
             return Ok(resolved);
         }
 
@@ -195,15 +196,16 @@ fn resolve_server_path() -> Result<PathBuf, String> {
                 } else {
                     exe_dir.join(&alt)
                 };
-                if alt_resolved.exists() {
+                if is_trusted_server_binary(&alt_resolved, expected_name) {
                     return Ok(alt_resolved);
                 }
             }
         }
 
         return Err(format!(
-            "Server path from {} does not exist: {}",
+            "Server path from {} is invalid (must be file named {}): {}",
             cfg_path.display(),
+            expected_name,
             resolved.display()
         ));
     }
@@ -214,7 +216,7 @@ fn resolve_server_path() -> Result<PathBuf, String> {
         "hifisampler-server"
     };
     let fallback = exe_dir.join(name);
-    if fallback.exists() {
+    if is_trusted_server_binary(&fallback, expected_name) {
         return Ok(fallback);
     }
 
@@ -223,6 +225,28 @@ fn resolve_server_path() -> Result<PathBuf, String> {
         cfg_path.display(),
         fallback.display()
     ))
+}
+
+fn expected_server_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "hifisampler-server.exe"
+    } else {
+        "hifisampler-server"
+    }
+}
+
+fn is_trusted_server_binary(path: &Path, expected_name: &str) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+        return false;
+    };
+    if cfg!(windows) {
+        name.eq_ignore_ascii_case(expected_name)
+    } else {
+        name == expected_name
+    }
 }
 
 fn normalize_config_path(raw: &str) -> PathBuf {

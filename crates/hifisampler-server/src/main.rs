@@ -12,7 +12,7 @@ mod webui;
 use anyhow::Result;
 use axum::{
     Router,
-    extract::State,
+    extract::{ConnectInfo, State},
     http::StatusCode,
     response::{IntoResponse, Redirect, Response},
     routing::{get, post, put},
@@ -22,6 +22,8 @@ use hifisampler_core::{
     cache::CacheManager, config::Config, models::Models, parse_utau::UtauParams, resampler,
 };
 use parking_lot::Mutex;
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -31,6 +33,7 @@ use tracing::{error, info};
 use crate::stats::StatsCollector;
 
 const BRIDGE_SERVER_PATH_FILE: &str = "hifisampler-server.path";
+const DEFAULT_OPENUTAU_RESAMPLERS_DIR: &str = "OpenUtau\\Resamplers";
 
 #[derive(Parser, Debug)]
 #[command(name = "hifisampler-server", about = "HiFiSampler inference server")]
@@ -160,7 +163,6 @@ async fn main() -> Result<()> {
         .route("/shutdown", post(shutdown_handler))
         .route("/install-bridge", post(install_bridge_handler))
         .nest_service("/ui", tower_http::services::ServeDir::new("webui"))
-        .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state);
 
     info!("Server listening on http://{}", addr);
@@ -294,11 +296,14 @@ async fn main() -> Result<()> {
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let mut shutdown_rx_wait = shutdown_rx.clone();
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            let _ = shutdown_rx_wait.changed().await;
-        })
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        let _ = shutdown_rx_wait.changed().await;
+    })
+    .await?;
 
     Ok(())
 }
@@ -412,6 +417,33 @@ fn now_unix_secs() -> u64 {
         .as_secs()
 }
 
+fn is_allowed_bridge_install_dir(target_dir: &Path) -> bool {
+    let Ok(canonical) = target_dir.canonicalize() else {
+        return false;
+    };
+
+    let normalized = canonical
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    normalized.ends_with("\\resamplers")
+        && normalized.contains(&DEFAULT_OPENUTAU_RESAMPLERS_DIR.to_ascii_lowercase())
+}
+
+fn write_path_file_atomic(path_file: &Path, server_exe: &Path) -> std::io::Result<()> {
+    let tmp_name = format!("{}.tmp-{}", BRIDGE_SERVER_PATH_FILE, std::process::id());
+    let tmp_path: PathBuf = path_file
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(tmp_name);
+
+    std::fs::write(&tmp_path, format!("{}\n", server_exe.display()))?;
+    if path_file.exists() {
+        std::fs::remove_file(path_file)?;
+    }
+    std::fs::rename(&tmp_path, path_file)
+}
+
 /// GET /config - Current configuration.
 /// No lock at all — Config is immutable behind Arc.
 async fn config_handler(State(state): State<AppState>) -> impl IntoResponse {
@@ -450,8 +482,16 @@ struct InstallBridgeRequest {
 }
 
 async fn install_bridge_handler(
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
     axum::Json(req): axum::Json<InstallBridgeRequest>,
 ) -> impl IntoResponse {
+    if !remote.ip().is_loopback() {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({"error": "仅允许本机请求安装桥接程序"})),
+        );
+    }
+
     let target_dir = std::path::Path::new(&req.path);
 
     // Validate target directory exists
@@ -459,6 +499,18 @@ async fn install_bridge_handler(
         return (
             StatusCode::BAD_REQUEST,
             axum::Json(serde_json::json!({"error": format!("目录不存在: {}", req.path)})),
+        );
+    }
+
+    if !is_allowed_bridge_install_dir(target_dir) {
+        return (
+            StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({
+                "error": format!(
+                    "仅允许安装到 OpenUTAU Resamplers 目录（例如包含 {}）",
+                    DEFAULT_OPENUTAU_RESAMPLERS_DIR
+                )
+            })),
         );
     }
 
@@ -495,7 +547,8 @@ async fn install_bridge_handler(
     match std::fs::copy(&bridge_src, &dest) {
         Ok(_) => {
             let path_file = target_dir.join(BRIDGE_SERVER_PATH_FILE);
-            if let Err(e) = std::fs::write(&path_file, format!("{}\n", server_exe.display())) {
+            if let Err(e) = write_path_file_atomic(&path_file, &server_exe) {
+                let _ = std::fs::remove_file(&dest);
                 error!("Bridge server path file write failed: {}", e);
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,

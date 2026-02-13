@@ -169,15 +169,32 @@ fn resolve_server_path() -> Result<PathBuf, String> {
                 )
             })?;
 
-        let configured = PathBuf::from(line);
+        let configured_raw = line.trim_matches('"');
+        let configured = normalize_config_path(configured_raw);
         let resolved = if configured.is_absolute() {
-            configured
+            configured.clone()
         } else {
             exe_dir.join(configured)
         };
 
         if resolved.exists() {
             return Ok(resolved);
+        }
+
+        #[cfg(windows)]
+        {
+            let alt = strip_windows_verbatim_prefix(configured_raw);
+            if alt != configured_raw {
+                let alt_path = PathBuf::from(&alt);
+                let alt_resolved = if alt_path.is_absolute() {
+                    alt_path
+                } else {
+                    exe_dir.join(&alt)
+                };
+                if alt_resolved.exists() {
+                    return Ok(alt_resolved);
+                }
+            }
         }
 
         return Err(format!(
@@ -202,6 +219,31 @@ fn resolve_server_path() -> Result<PathBuf, String> {
         cfg_path.display(),
         fallback.display()
     ))
+}
+
+fn normalize_config_path(raw: &str) -> PathBuf {
+    #[cfg(windows)]
+    {
+        PathBuf::from(strip_windows_verbatim_prefix(raw))
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from(raw)
+    }
+}
+
+#[cfg(windows)]
+fn strip_windows_verbatim_prefix(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{}", rest);
+    }
+    if let Some(rest) = path.strip_prefix(r"\\?\") {
+        return rest.to_string();
+    }
+    if let Some(rest) = path.strip_prefix(r"\??\") {
+        return rest.to_string();
+    }
+    path.to_string()
 }
 
 fn wait_for_server() -> Result<(), String> {

@@ -403,9 +403,8 @@ async fn install_bridge_handler(
     let dest = target_dir.join(bridge_name);
     match std::fs::copy(&bridge_src, &dest) {
         Ok(_) => {
-            let server_abs = server_exe.canonicalize().unwrap_or(server_exe.clone());
             let path_file = target_dir.join(BRIDGE_SERVER_PATH_FILE);
-            if let Err(e) = std::fs::write(&path_file, format!("{}\n", server_abs.display())) {
+            if let Err(e) = std::fs::write(&path_file, format!("{}\n", server_exe.display())) {
                 error!("Bridge server path file write failed: {}", e);
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,

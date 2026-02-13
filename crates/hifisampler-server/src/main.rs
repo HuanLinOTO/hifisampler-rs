@@ -168,7 +168,7 @@ async fn main() -> Result<()> {
     // Try to open a browser window:
     // - if a known Chromium-like browser is present in PATH, launch it with --app="{addr}"
     // - otherwise fall back to the platform default opener (start/open/xdg-open)
-    if !args.managed {
+    {
         use std::env;
         use std::path::PathBuf;
         use std::process::Command;

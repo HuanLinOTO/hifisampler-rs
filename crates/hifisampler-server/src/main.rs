@@ -12,7 +12,7 @@ mod webui;
 use anyhow::Result;
 use axum::{
     Router,
-    extract::State,
+    extract::{ConnectInfo, State},
     http::StatusCode,
     response::{IntoResponse, Redirect, Response},
     routing::{get, post, put},
@@ -22,12 +22,18 @@ use hifisampler_core::{
     cache::CacheManager, config::Config, models::Models, parse_utau::UtauParams, resampler,
 };
 use parking_lot::Mutex;
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::task;
 use tracing::{error, info};
 
 use crate::stats::StatsCollector;
+
+const BRIDGE_SERVER_PATH_FILE: &str = "hifisampler-server.path";
+const DEFAULT_OPENUTAU_RESAMPLERS_DIR: &str = "OpenUtau\\Resamplers";
 
 #[derive(Parser, Debug)]
 #[command(name = "hifisampler-server", about = "HiFiSampler inference server")]
@@ -43,6 +49,14 @@ struct Args {
     /// Override port
     #[arg(long)]
     port: Option<u16>,
+
+    /// Run in bridge-managed mode (auto shutdown when idle)
+    #[arg(long, default_value_t = false)]
+    managed: bool,
+
+    /// Auto shutdown timeout in seconds for managed mode
+    #[arg(long, default_value_t = 600)]
+    idle_timeout_secs: u64,
 }
 
 /// Decomposed application state — each component is independently wrapped
@@ -56,6 +70,11 @@ struct AppState {
     stats: Arc<Mutex<StatsCollector>>,
     ready: Arc<AtomicBool>,
     active_requests: Arc<AtomicU64>,
+    managed: bool,
+    idle_timeout_secs: u64,
+    last_activity_unix: Arc<AtomicU64>,
+    shutdown_requested: Arc<AtomicBool>,
+    shutdown_tx: tokio::sync::watch::Sender<bool>,
 }
 
 #[tokio::main]
@@ -86,6 +105,7 @@ async fn main() -> Result<()> {
     let models = Models::load(&config)?;
     let cache = CacheManager::new();
     let stats = StatsCollector::new();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     let state = AppState {
         config: Arc::new(config),
@@ -95,19 +115,54 @@ async fn main() -> Result<()> {
         stats: Arc::new(Mutex::new(stats)),
         ready: Arc::new(AtomicBool::new(true)),
         active_requests: Arc::new(AtomicU64::new(0)),
+        managed: args.managed,
+        idle_timeout_secs: args.idle_timeout_secs,
+        last_activity_unix: Arc::new(AtomicU64::new(now_unix_secs())),
+        shutdown_requested: Arc::new(AtomicBool::new(false)),
+        shutdown_tx,
     };
+
+    if state.managed {
+        info!(
+            "Managed mode enabled (idle timeout: {}s)",
+            state.idle_timeout_secs
+        );
+        let watchdog_state = state.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                if watchdog_state.shutdown_requested.load(Ordering::Relaxed) {
+                    break;
+                }
+                let active = watchdog_state.active_requests.load(Ordering::Relaxed);
+                if active > 0 {
+                    continue;
+                }
+                let idle = now_unix_secs()
+                    .saturating_sub(watchdog_state.last_activity_unix.load(Ordering::Relaxed));
+                if idle >= watchdog_state.idle_timeout_secs {
+                    request_shutdown(
+                        &watchdog_state,
+                        &format!("managed idle timeout reached ({}s)", idle),
+                    );
+                    break;
+                }
+            }
+        });
+    }
 
     // Build router
     let app = Router::new()
         .route("/", get(health_check))
         .route("/", post(inference_handler))
+        .route("/refresh", get(refresh_handler))
         .route("/stats", get(stats_handler))
         .route("/stats/reset", post(stats_reset_handler))
         .route("/config", get(config_handler))
         .route("/config", put(config_save_handler))
+        .route("/shutdown", post(shutdown_handler))
         .route("/install-bridge", post(install_bridge_handler))
         .nest_service("/ui", tower_http::services::ServeDir::new("webui"))
-        .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state);
 
     info!("Server listening on http://{}", addr);
@@ -134,8 +189,8 @@ async fn main() -> Result<()> {
         // On Windows prefer querying HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths
         #[cfg(windows)]
         fn find_in_app_paths(exe: &str) -> Option<PathBuf> {
-            use winreg::enums::HKEY_LOCAL_MACHINE;
             use winreg::RegKey;
+            use winreg::enums::HKEY_LOCAL_MACHINE;
             let hk = RegKey::predef(HKEY_LOCAL_MACHINE);
             let base = r"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths";
             let candidates = [
@@ -181,7 +236,11 @@ async fn main() -> Result<()> {
             if let Ok(pathvar) = env::var("PATH") {
                 let paths = env::split_paths(&pathvar);
                 #[cfg(windows)]
-                let exts: Vec<String> = env::var("PATHEXT").unwrap_or_default().split(';').map(|s| s.to_string()).collect();
+                let exts: Vec<String> = env::var("PATHEXT")
+                    .unwrap_or_default()
+                    .split(';')
+                    .map(|s| s.to_string())
+                    .collect();
                 #[cfg(not(windows))]
                 let exts: Vec<String> = vec!["".to_string()];
 
@@ -214,7 +273,10 @@ async fn main() -> Result<()> {
         for &bin in CANDIDATES {
             if let Some(path) = path_has_exe(bin) {
                 info!("Launching browser '{}' with --app=...", bin);
-                let _ = Command::new(path).arg(format!("--app={}", url)).spawn();
+                let _ = Command::new(path)
+                    .arg(format!("--app={}", url))
+                    .arg("--window-size=1280,720")
+                    .spawn();
                 launched = true;
                 break;
             }
@@ -233,7 +295,15 @@ async fn main() -> Result<()> {
     }
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    let mut shutdown_rx_wait = shutdown_rx.clone();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        let _ = shutdown_rx_wait.changed().await;
+    })
+    .await?;
 
     Ok(())
 }
@@ -255,6 +325,9 @@ async fn health_check(State(state): State<AppState>) -> Response {
 /// Clones Arc refs into `spawn_blocking` — no global Mutex lock.
 /// Models internally use per-model Mutex (only locked for actual ONNX calls).
 async fn inference_handler(State(state): State<AppState>, body: String) -> impl IntoResponse {
+    state
+        .last_activity_unix
+        .store(now_unix_secs(), Ordering::Relaxed);
     let body = body.trim().to_string();
 
     // Parse params (cheap, no lock needed)
@@ -300,6 +373,16 @@ async fn inference_handler(State(state): State<AppState>, body: String) -> impl 
     }
 }
 
+async fn shutdown_handler(State(state): State<AppState>) -> impl IntoResponse {
+    request_shutdown(&state, "requested from WebUI");
+    (StatusCode::OK, "Shutting down")
+}
+
+async fn refresh_handler() -> impl IntoResponse {
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    (StatusCode::OK, "refresh")
+}
+
 /// GET /stats - Performance statistics.
 /// Brief lock — only reading stats, no interference with inference.
 async fn stats_handler(State(state): State<AppState>) -> impl IntoResponse {
@@ -313,6 +396,52 @@ async fn stats_handler(State(state): State<AppState>) -> impl IntoResponse {
 async fn stats_reset_handler(State(state): State<AppState>) -> impl IntoResponse {
     state.stats.lock().reset();
     (StatusCode::OK, "Stats reset")
+}
+
+fn request_shutdown(state: &AppState, reason: &str) {
+    if state
+        .shutdown_requested
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        state.ready.store(false, Ordering::Relaxed);
+        info!("Shutdown requested: {}", reason);
+        let _ = state.shutdown_tx.send(true);
+    }
+}
+
+fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn is_allowed_bridge_install_dir(target_dir: &Path) -> bool {
+    let Ok(canonical) = target_dir.canonicalize() else {
+        return false;
+    };
+
+    let normalized = canonical
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    normalized.ends_with("\\resamplers")
+        && normalized.contains(&DEFAULT_OPENUTAU_RESAMPLERS_DIR.to_ascii_lowercase())
+}
+
+fn write_path_file_atomic(path_file: &Path, server_exe: &Path) -> std::io::Result<()> {
+    let tmp_name = format!("{}.tmp-{}", BRIDGE_SERVER_PATH_FILE, std::process::id());
+    let tmp_path: PathBuf = path_file
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(tmp_name);
+
+    std::fs::write(&tmp_path, format!("{}\n", server_exe.display()))?;
+    if path_file.exists() {
+        std::fs::remove_file(path_file)?;
+    }
+    std::fs::rename(&tmp_path, path_file)
 }
 
 /// GET /config - Current configuration.
@@ -353,8 +482,16 @@ struct InstallBridgeRequest {
 }
 
 async fn install_bridge_handler(
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
     axum::Json(req): axum::Json<InstallBridgeRequest>,
 ) -> impl IntoResponse {
+    if !remote.ip().is_loopback() {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({"error": "仅允许本机请求安装桥接程序"})),
+        );
+    }
+
     let target_dir = std::path::Path::new(&req.path);
 
     // Validate target directory exists
@@ -362,6 +499,18 @@ async fn install_bridge_handler(
         return (
             StatusCode::BAD_REQUEST,
             axum::Json(serde_json::json!({"error": format!("目录不存在: {}", req.path)})),
+        );
+    }
+
+    if !is_allowed_bridge_install_dir(target_dir) {
+        return (
+            StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({
+                "error": format!(
+                    "仅允许安装到 OpenUTAU Resamplers 目录（例如包含 {}）",
+                    DEFAULT_OPENUTAU_RESAMPLERS_DIR
+                )
+            })),
         );
     }
 
@@ -397,14 +546,30 @@ async fn install_bridge_handler(
     let dest = target_dir.join(bridge_name);
     match std::fs::copy(&bridge_src, &dest) {
         Ok(_) => {
+            let path_file = target_dir.join(BRIDGE_SERVER_PATH_FILE);
+            if let Err(e) = write_path_file_atomic(&path_file, &server_exe) {
+                let _ = std::fs::remove_file(&dest);
+                error!("Bridge server path file write failed: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    axum::Json(
+                        serde_json::json!({"error": format!("写入 {} 失败: {}", path_file.display(), e)}),
+                    ),
+                );
+            }
+
             info!(
-                "Bridge installed: {} -> {}",
+                "Bridge installed: {} -> {} (server path file: {})",
                 bridge_src.display(),
-                dest.display()
+                dest.display(),
+                path_file.display()
             );
             (
                 StatusCode::OK,
-                axum::Json(serde_json::json!({"message": format!("已安装到 {}", dest.display())})),
+                axum::Json(serde_json::json!({
+                    "message": format!("已安装到 {}", dest.display()),
+                    "server_path_file": path_file.display().to_string(),
+                })),
             )
         }
         Err(e) => {

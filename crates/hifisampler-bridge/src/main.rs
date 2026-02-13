@@ -10,9 +10,10 @@
 //! 3. Forward UTAU resample parameters via HTTP POST /
 
 use std::env;
+use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -25,6 +26,8 @@ const MAX_RETRIES: u32 = 3;
 const RETRY_DELAY: Duration = Duration::from_millis(500);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+const SERVER_PATH_CONFIG_FILE: &str = "hifisampler-server.path";
+const MANAGED_IDLE_TIMEOUT_SECS: u64 = 600;
 
 fn main() {
     if let Err(msg) = run() {
@@ -128,31 +131,147 @@ fn http_post(body: &str) -> Result<(), String> {
 // ─────────────────── Server lifecycle ───────────────────
 
 fn start_server() -> Result<(), String> {
-    let exe_dir = env::current_exe()
-        .map_err(|e| format!("Cannot determine exe path: {e}"))?
+    let server_path = resolve_server_path()?;
+    let server_dir = server_path
         .parent()
-        .unwrap_or(&PathBuf::from("."))
-        .to_path_buf();
-
-    let name = if cfg!(windows) {
-        "hifisampler-server.exe"
-    } else {
-        "hifisampler-server"
-    };
-    let server_path = exe_dir.join(name);
-
-    if !server_path.exists() {
-        return Err(format!("Cannot find {name} in {}", exe_dir.display()));
-    }
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
 
     eprintln!("Starting server: {}", server_path.display());
     Command::new(&server_path)
+        .arg("--managed")
+        .arg("--idle-timeout-secs")
+        .arg(MANAGED_IDLE_TIMEOUT_SECS.to_string())
+        .current_dir(&server_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Spawn failed: {e}"))?;
 
     Ok(())
+}
+
+fn resolve_server_path() -> Result<PathBuf, String> {
+    let bridge_exe = env::current_exe().map_err(|e| format!("Cannot determine exe path: {e}"))?;
+    let exe_dir = bridge_exe
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let cfg_path = exe_dir.join(SERVER_PATH_CONFIG_FILE);
+    let expected_name = expected_server_binary_name();
+    if cfg_path.exists() {
+        let raw = fs::read_to_string(&cfg_path)
+            .map_err(|e| format!("Cannot read {}: {e}", cfg_path.display()))?;
+        let line = raw
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty() && !line.starts_with('#'))
+            .ok_or_else(|| {
+                format!(
+                    "{} is empty. Expected first non-empty line to be server path.",
+                    cfg_path.display()
+                )
+            })?;
+
+        let configured_raw = line.trim_matches('"');
+        let configured = normalize_config_path(configured_raw);
+        let resolved = if configured.is_absolute() {
+            configured.clone()
+        } else {
+            exe_dir.join(configured)
+        };
+
+        if is_trusted_server_binary(&resolved, expected_name) {
+            return Ok(resolved);
+        }
+
+        #[cfg(windows)]
+        {
+            let alt = strip_windows_verbatim_prefix(configured_raw);
+            if alt != configured_raw {
+                let alt_path = PathBuf::from(&alt);
+                let alt_resolved = if alt_path.is_absolute() {
+                    alt_path
+                } else {
+                    exe_dir.join(&alt)
+                };
+                if is_trusted_server_binary(&alt_resolved, expected_name) {
+                    return Ok(alt_resolved);
+                }
+            }
+        }
+
+        return Err(format!(
+            "Server path from {} is invalid (must be file named {}): {}",
+            cfg_path.display(),
+            expected_name,
+            resolved.display()
+        ));
+    }
+
+    let name = if cfg!(windows) {
+        "hifisampler-server.exe"
+    } else {
+        "hifisampler-server"
+    };
+    let fallback = exe_dir.join(name);
+    if is_trusted_server_binary(&fallback, expected_name) {
+        return Ok(fallback);
+    }
+
+    Err(format!(
+        "Cannot find server binary. Tried {} and {}. Install bridge from WebUI Setup first.",
+        cfg_path.display(),
+        fallback.display()
+    ))
+}
+
+fn expected_server_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "hifisampler-server.exe"
+    } else {
+        "hifisampler-server"
+    }
+}
+
+fn is_trusted_server_binary(path: &Path, expected_name: &str) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+        return false;
+    };
+    if cfg!(windows) {
+        name.eq_ignore_ascii_case(expected_name)
+    } else {
+        name == expected_name
+    }
+}
+
+fn normalize_config_path(raw: &str) -> PathBuf {
+    #[cfg(windows)]
+    {
+        PathBuf::from(strip_windows_verbatim_prefix(raw))
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from(raw)
+    }
+}
+
+#[cfg(windows)]
+fn strip_windows_verbatim_prefix(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{}", rest);
+    }
+    if let Some(rest) = path.strip_prefix(r"\\?\") {
+        return rest.to_string();
+    }
+    if let Some(rest) = path.strip_prefix(r"\??\") {
+        return rest.to_string();
+    }
+    path.to_string()
 }
 
 fn wait_for_server() -> Result<(), String> {

@@ -21,6 +21,7 @@
 #ifndef MyAppVersion
   #define MyAppVersion "0.1.0"
 #endif
+#define MyAppVersionFileSafe StringChange(StringChange(MyAppVersion, "/", "-"), "\\", "-")
 #define MyAppPublisher "OpenHachimi"
 #define MyAppURL "https://github.com/openhachimi/hifisampler"
 #define MyAppExeName "hifisampler-server.exe"
@@ -40,7 +41,7 @@ AllowNoIcons=yes
 LicenseFile={#SourceDir}\LICENSE
 #endif
 OutputDir=output
-OutputBaseFilename=HiFiSampler-{#MyAppVersion}-{#Variant}-Setup
+OutputBaseFilename=HiFiSampler-{#MyAppVersionFileSafe}-{#Variant}-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -119,7 +120,7 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  Src, Dest: String;
+  Src, Dest, PathCfg: String;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -130,6 +131,8 @@ begin
       if DirExists(OpenUtauDirPage.Values[0]) then
       begin
         FileCopy(Src, Dest, False);
+        PathCfg := AddBackslash(OpenUtauDirPage.Values[0]) + 'hifisampler-server.path';
+        SaveStringToFile(PathCfg, ExpandConstant('{app}\hifisampler-server.exe') + #13#10, False);
         MsgBox('桥接程序已安装到：' + #13#10 + Dest + #13#10#13#10 +
           '请重启 OpenUTAU，切换到 Classic 模式，' + #13#10 +
           '在 Resampler 列表中选择 hifisampler.exe。', mbInformation, MB_OK);
@@ -141,6 +144,8 @@ begin
         begin
           ForceDirectories(OpenUtauDirPage.Values[0]);
           FileCopy(Src, Dest, False);
+          PathCfg := AddBackslash(OpenUtauDirPage.Values[0]) + 'hifisampler-server.path';
+          SaveStringToFile(PathCfg, ExpandConstant('{app}\hifisampler-server.exe') + #13#10, False);
           MsgBox('桥接程序已安装到：' + #13#10 + Dest, mbInformation, MB_OK);
         end;
       end;

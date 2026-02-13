@@ -54,12 +54,7 @@ impl MelAnalyzer {
     /// Python mel_analyzer is initialized with hop_length=origin_hop_size (128).
     /// speed parameter scales hop_length: `hop_length = int(np.round(self.hop_length * speed))`
     /// In generate_features, Python passes speed=1.0, so effective hop = origin_hop_size = 128.
-    pub fn mel_spectrogram(
-        &self,
-        audio: &[f32],
-        key_shift: f32,
-        speed: f32,
-    ) -> Array2<f32> {
+    pub fn mel_spectrogram(&self, audio: &[f32], key_shift: f32, speed: f32) -> Array2<f32> {
         let factor = 2.0f64.powf(key_shift as f64 / 12.0);
         let n_fft_new = (self.n_fft as f64 * factor).round() as usize;
         let win_size_new = (self.win_size as f64 * factor).round() as usize;
@@ -293,11 +288,7 @@ fn reflect_index(idx: usize, len: usize) -> usize {
     }
     let period = 2 * (len - 1);
     let idx = idx % period;
-    if idx < len {
-        idx
-    } else {
-        period - idx
-    }
+    if idx < len { idx } else { period - idx }
 }
 
 /// Create a Hann window (matching torch.hann_window).

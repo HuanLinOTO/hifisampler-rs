@@ -22,10 +22,11 @@ fn main() {
     for i in 0..n_samples {
         let t = i as f32 / sr as f32;
         let sample = (2.0 * PI * freq * t).sin() * 0.5;
-        writer
-            .write_sample((sample * 32767.0) as i16)
-            .unwrap();
+        writer.write_sample((sample * 32767.0) as i16).unwrap();
     }
     writer.finalize().unwrap();
-    println!("Generated {} ({} samples at {} Hz)", out_path, n_samples, sr);
+    println!(
+        "Generated {} ({} samples at {} Hz)",
+        out_path, n_samples, sr
+    );
 }

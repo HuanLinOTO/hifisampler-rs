@@ -664,6 +664,32 @@
                     </table>
                 </div>
             </div>
+
+            <div class="sec">
+                <h2>🏷 常用 Flags 速查</h2>
+                <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">用于快速确认 OpenUTAU/UTAU 传参是否生效。可在上方「Bridge 调用参数」里直接检查实际 flags 字符串。</p>
+                <div class="tw">
+                    <table class="rt">
+                        <thead>
+                            <tr>
+                                <th>Flag</th>
+                                <th>含义</th>
+                                <th>范围 / 例子</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><code>He</code></td><td>切换延长策略（与 config 的 <code>processing.loop_mode</code> 互斥反转）</td><td>无数值，例如 <code>He</code></td></tr>
+                            <tr><td><code>HG</code></td><td>Growl</td><td><code>0-100</code>，例如 <code>HG50</code></td></tr>
+                            <tr><td><code>Ht</code></td><td>Tension（频谱倾斜）</td><td><code>-100..100</code>，例如 <code>Ht20</code></td></tr>
+                            <tr><td><code>Hb</code></td><td>Breathiness（噪声比例）</td><td><code>0..500</code>，例如 <code>Hb80</code></td></tr>
+                            <tr><td><code>Hv</code></td><td>Voicing（谐波比例）</td><td><code>0..150</code>，例如 <code>Hv120</code></td></tr>
+                            <tr><td><code>g</code></td><td>Gender / Formant 偏移</td><td>整数，例如 <code>g-10</code></td></tr>
+                            <tr><td><code>A</code></td><td>按音高变化速率调制振幅</td><td><code>-100..100</code>，例如 <code>A5</code></td></tr>
+                            <tr><td><code>P</code></td><td>响度归一化强度</td><td><code>0..100</code>，例如 <code>P80</code></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
         <!-- ══ Config ══ -->
         <div class="page" id="p-cfg">

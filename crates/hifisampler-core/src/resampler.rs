@@ -32,6 +32,10 @@ pub struct ResampleStats {
     pub cache_hit: bool,
 }
 
+fn should_use_loop_mode(config_loop_mode: bool, he_flag: bool) -> bool {
+    config_loop_mode ^ he_flag
+}
+
 /// Perform the full resample operation — matches Python `Resampler.render()`.
 pub fn resample(
     params: &UtauParams,
@@ -97,7 +101,7 @@ pub fn resample(
     // - loop_mode=false + He    => loop
     // - loop_mode=true  + no He => loop
     // - loop_mode=true  + He    => stretch
-    let use_loop_mode = config.processing.loop_mode ^ flags.he;
+    let use_loop_mode = should_use_loop_mode(config.processing.loop_mode, flags.he);
 
     let (mel_work, t_area_work, total_time_work) = if use_loop_mode {
         let con_frame = ((con + thop_origin / 2.0) / thop_origin) as usize;
@@ -588,4 +592,17 @@ fn interp1d_single(x: &[f32], y: &[f32], t: f32) -> f32 {
     let idx = idx.min(x.len() - 2);
     let frac = (t - x[idx]) / (x[idx + 1] - x[idx]);
     y[idx] + frac * (y[idx + 1] - y[idx])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_use_loop_mode;
+
+    #[test]
+    fn test_use_loop_mode_matrix() {
+        assert!(!should_use_loop_mode(false, false));
+        assert!(should_use_loop_mode(false, true));
+        assert!(should_use_loop_mode(true, false));
+        assert!(!should_use_loop_mode(true, true));
+    }
 }

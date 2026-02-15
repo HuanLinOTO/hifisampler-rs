@@ -159,7 +159,7 @@ pub struct UtauFlags {
     pub p: i32,
     /// Force regenerate cache
     pub gen_cache: bool,
-    /// Enable mel loop mode
+    /// Toggle mel loop mode against config default
     pub he: bool,
 }
 
@@ -330,6 +330,13 @@ mod tests {
         assert_eq!(flags.hv, 120);
         assert_eq!(flags.ht, 20);
         assert_eq!(flags.hg, 50);
+        assert!(!flags.he);
+
+        let flags_with_he = parse_flags("g-10He");
+        assert!(flags_with_he.he);
+
+        let flags_with_he_lower = parse_flags("g-10he");
+        assert!(flags_with_he_lower.he);
     }
 
     #[test]

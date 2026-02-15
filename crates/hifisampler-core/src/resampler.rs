@@ -12,7 +12,7 @@ use crate::growl::apply_growl;
 use crate::mel::dynamic_range_compression;
 use crate::models::Models;
 use crate::parse_utau::{
-    UtauFlags, UtauParams, decode_pitchbend, midi_to_hz_f64, note_to_midi, parse_flags,
+    decode_pitchbend, midi_to_hz_f64, note_to_midi, parse_flags, UtauFlags, UtauParams,
 };
 use anyhow::Result;
 use ndarray::Array2;
@@ -30,6 +30,10 @@ pub struct ResampleStats {
     pub input_samples: usize,
     pub output_samples: usize,
     pub cache_hit: bool,
+}
+
+fn should_use_loop_mode(config_loop_mode: bool, he_flag: bool) -> bool {
+    config_loop_mode ^ he_flag
 }
 
 /// Perform the full resample operation — matches Python `Resampler.render()`.
@@ -91,8 +95,15 @@ pub fn resample(
     let length_req = params.length as f64 / 1000.0;
     let mut stretch_length = end - con;
 
-    // ── Loop mode (He flag) ──
-    let (mel_work, t_area_work, total_time_work) = if config.processing.loop_mode || flags.he {
+    // ── Loop mode (He toggles config default) ──
+    // Python behavior:
+    // - loop_mode=false + no He => stretch
+    // - loop_mode=false + He    => loop
+    // - loop_mode=true  + no He => loop
+    // - loop_mode=true  + He    => stretch
+    let use_loop_mode = should_use_loop_mode(config.processing.loop_mode, flags.he);
+
+    let (mel_work, t_area_work, total_time_work) = if use_loop_mode {
         let con_frame = ((con + thop_origin / 2.0) / thop_origin) as usize;
         let end_frame = ((end + thop_origin / 2.0) / thop_origin) as usize;
         let con_frame = con_frame.min(n_mel_frames);
@@ -488,7 +499,11 @@ fn reflect_index_mel(idx: usize, len: usize) -> usize {
     }
     let period = 2 * (len - 1);
     let idx = idx % period;
-    if idx < len { idx } else { period - idx }
+    if idx < len {
+        idx
+    } else {
+        period - idx
+    }
 }
 
 /// Apply amplitude modulation (A flag) — matches Python exactly.
@@ -577,4 +592,17 @@ fn interp1d_single(x: &[f32], y: &[f32], t: f32) -> f32 {
     let idx = idx.min(x.len() - 2);
     let frac = (t - x[idx]) / (x[idx + 1] - x[idx]);
     y[idx] + frac * (y[idx + 1] - y[idx])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_use_loop_mode;
+
+    #[test]
+    fn test_use_loop_mode_matrix() {
+        assert!(!should_use_loop_mode(false, false));
+        assert!(should_use_loop_mode(false, true));
+        assert!(should_use_loop_mode(true, false));
+        assert!(!should_use_loop_mode(true, true));
+    }
 }

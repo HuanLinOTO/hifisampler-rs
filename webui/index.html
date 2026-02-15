@@ -566,80 +566,88 @@
     <div class="header">
         <h1>🎵 HiFiSampler</h1>
         <div class="status">
-            <div class="dot" id="sd"></div><span id="st">连接中…</span>
+            <div class="dot" id="sd"></div><span id="st" data-i18n="status.connecting">连接中…</span>
         </div>
         <div class="spacer"></div>
-        <button class="btn btn-no" id="exitBtn" onclick="exitApp()">退出</button>
+        <select id="langSel" class="btn" style="padding:6px 10px;">
+            <option value="zh">中文</option>
+            <option value="ja">日本語</option>
+            <option value="en">English</option>
+            <option value="fr">Français</option>
+            <option value="de">Deutsch</option>
+            <option value="ru">Русский</option>
+        </select>
+        <button class="btn btn-no" id="exitBtn" onclick="exitApp()" data-i18n="common.exit">退出</button>
         <div class="ver">v0.1.0</div>
     </div>
     <div class="nav">
-        <div class="nav-t on" data-p="mon">📊 监控面板</div>
-        <div class="nav-t" data-p="cfg">⚙ 配置管理</div>
-        <div class="nav-t" data-p="set">🔧 安装向导</div>
+        <div class="nav-t on" data-p="mon" data-i18n="nav.monitor">📊 监控面板</div>
+        <div class="nav-t" data-p="cfg" data-i18n="nav.config">⚙ 配置管理</div>
+        <div class="nav-t" data-p="set" data-i18n="nav.setup">🔧 安装向导</div>
     </div>
     <div class="main">
         <!-- ══ Monitor ══ -->
         <div class="page on" id="p-mon">
             <div class="cards">
                 <div class="card">
-                    <div class="lb">总请求数</div>
+                    <div class="lb" data-i18n="card.total_requests">总请求数</div>
                     <div class="vl" id="c-req">0</div>
                 </div>
                 <div class="card">
-                    <div class="lb">平均延迟</div>
+                    <div class="lb" data-i18n="card.avg_latency">平均延迟</div>
                     <div class="vl" id="c-avg">0<span class="un">ms</span></div>
                 </div>
                 <div class="card">
-                    <div class="lb">P95 延迟</div>
+                    <div class="lb" data-i18n="card.p95_latency">P95 延迟</div>
                     <div class="vl" id="c-p95">0<span class="un">ms</span></div>
                 </div>
                 <div class="card">
-                    <div class="lb">缓存命中率</div>
+                    <div class="lb" data-i18n="card.cache_hit">缓存命中率</div>
                     <div class="vl" id="c-hit">0<span class="un">%</span></div>
                 </div>
                 <div class="card">
-                    <div class="lb">吞吐量</div>
+                    <div class="lb" data-i18n="card.throughput">吞吐量</div>
                     <div class="vl" id="c-rps">0<span class="un">rps</span></div>
                 </div>
                 <div class="card">
-                    <div class="lb">错误</div>
+                    <div class="lb" data-i18n="card.errors">错误</div>
                     <div class="vl" id="c-err">0</div>
                 </div>
             </div>
             <div class="sec">
-                <h2>📈 请求活动</h2>
+                <h2 data-i18n="mon.activity">📈 请求活动</h2>
                 <div class="chart-wrap">
                     <canvas id="chart"></canvas>
                 </div>
             </div>
             <div class="sec">
-                <h2>📊 耗时分布 (平均)</h2>
+                <h2 data-i18n="mon.breakdown">📊 耗时分布 (平均)</h2>
                 <div class="bkd" id="bkd"></div>
                 <div class="leg">
                     <i>
-                        <d style="background:#4f46e5"></d> 特征提取
+                        <d style="background:#4f46e5"></d> <span data-i18n="mon.feature">特征提取</span>
                     </i>
                     <i>
-                        <d style="background:#0891b2"></d> 合成
+                        <d style="background:#0891b2"></d> <span data-i18n="mon.synthesis">合成</span>
                     </i>
                     <i>
-                        <d style="background:#059669"></d> 后处理
+                        <d style="background:#059669"></d> <span data-i18n="mon.postprocess">后处理</span>
                     </i>
                 </div>
             </div>
             <div class="sec">
-                <h2>📋 最近请求 <div style="flex:1"></div> <button class="btn" onclick="resetStats()">清空统计</button></h2>
+                <h2><span data-i18n="mon.recent">📋 最近请求</span> <div style="flex:1"></div> <button class="btn" onclick="resetStats()" data-i18n="mon.clear_stats">清空统计</button></h2>
                 <div class="tw">
                     <table class="rt">
                         <thead>
                             <tr>
                                 <th>#</th>
-                                <th>总计(ms)</th>
-                                <th>特征</th>
-                                <th>合成</th>
-                                <th>后处理</th>
-                                <th>采样数</th>
-                                <th>缓存</th>
+                                <th data-i18n="table.total_ms">总计(ms)</th>
+                                <th data-i18n="table.feature">特征</th>
+                                <th data-i18n="table.synthesis">合成</th>
+                                <th data-i18n="table.postprocess">后处理</th>
+                                <th data-i18n="table.samples">采样数</th>
+                                <th data-i18n="table.cache">缓存</th>
                             </tr>
                         </thead>
                         <tbody id="tbody"></tbody>
@@ -648,16 +656,16 @@
             </div>
 
             <div class="sec">
-                <h2>🐛 Bridge 调用参数 <div style="flex:1"></div> <button class="btn" onclick="resetDbg()">清空</button></h2>
-                <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">显示最近 50 次 bridge 调用传入的原始 CLI 参数（即 POST / 的 body），用于排查 flags 是否真的传到服务端。</p>
+                <h2><span data-i18n="dbg.title">🐛 Bridge 调用参数</span> <div style="flex:1"></div> <button class="btn" onclick="resetDbg()" data-i18n="common.clear">清空</button></h2>
+                <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;" data-i18n="dbg.desc">显示最近 50 次 bridge 调用传入的原始 CLI 参数（即 POST / 的 body），用于排查 flags 是否真的传到服务端。</p>
                 <div class="tw">
                     <table class="rt">
                         <thead>
                             <tr>
                                 <th>#</th>
-                                <th>时间</th>
-                                <th>来源</th>
-                                <th>参数</th>
+                                <th data-i18n="table.time">时间</th>
+                                <th data-i18n="table.source">来源</th>
+                                <th data-i18n="table.args">参数</th>
                             </tr>
                         </thead>
                         <tbody id="dbgBody"></tbody>
@@ -666,26 +674,26 @@
             </div>
 
             <div class="sec">
-                <h2>🏷 常用 Flags 速查</h2>
-                <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">用于快速确认 OpenUTAU/UTAU 传参是否生效。可在上方「Bridge 调用参数」里直接检查实际 flags 字符串。</p>
+                <h2 data-i18n="flags.title">🏷 常用 Flags 速查</h2>
+                <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;" data-i18n="flags.desc">用于快速确认 OpenUTAU/UTAU 传参是否生效。可在上方「Bridge 调用参数」里直接检查实际 flags 字符串。</p>
                 <div class="tw">
                     <table class="rt">
                         <thead>
                             <tr>
                                 <th>Flag</th>
-                                <th>含义</th>
-                                <th>范围 / 例子</th>
+                                <th data-i18n="flags.meaning">含义</th>
+                                <th data-i18n="flags.range">范围 / 例子</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr><td><code>He</code></td><td>切换延长策略（与 config 的 <code>processing.loop_mode</code> 互斥反转）</td><td>无数值，例如 <code>He</code></td></tr>
-                            <tr><td><code>HG</code></td><td>Growl</td><td><code>0-100</code>，例如 <code>HG50</code></td></tr>
-                            <tr><td><code>Ht</code></td><td>Tension（频谱倾斜）</td><td><code>-100..100</code>，例如 <code>Ht20</code></td></tr>
-                            <tr><td><code>Hb</code></td><td>Breathiness（噪声比例）</td><td><code>0..500</code>，例如 <code>Hb80</code></td></tr>
-                            <tr><td><code>Hv</code></td><td>Voicing（谐波比例）</td><td><code>0..150</code>，例如 <code>Hv120</code></td></tr>
-                            <tr><td><code>g</code></td><td>Gender / Formant 偏移</td><td>整数，例如 <code>g-10</code></td></tr>
-                            <tr><td><code>A</code></td><td>按音高变化速率调制振幅</td><td><code>-100..100</code>，例如 <code>A5</code></td></tr>
-                            <tr><td><code>P</code></td><td>响度归一化强度</td><td><code>0..100</code>，例如 <code>P80</code></td></tr>
+                            <tr><td><code>He</code></td><td data-i18n="flags.he.meaning">切换延长策略（与 config 的 <code>processing.loop_mode</code> 互斥反转）</td><td data-i18n="flags.he.range">无数值，例如 <code>He</code></td></tr>
+                            <tr><td><code>HG</code></td><td data-i18n="flags.hg.meaning">Growl</td><td data-i18n="flags.hg.range"><code>0-100</code>，例如 <code>HG50</code></td></tr>
+                            <tr><td><code>Ht</code></td><td data-i18n="flags.ht.meaning">Tension（频谱倾斜）</td><td data-i18n="flags.ht.range"><code>-100..100</code>，例如 <code>Ht20</code></td></tr>
+                            <tr><td><code>Hb</code></td><td data-i18n="flags.hb.meaning">Breathiness（噪声比例）</td><td data-i18n="flags.hb.range"><code>0..500</code>，例如 <code>Hb80</code></td></tr>
+                            <tr><td><code>Hv</code></td><td data-i18n="flags.hv.meaning">Voicing（谐波比例）</td><td data-i18n="flags.hv.range"><code>0..150</code>，例如 <code>Hv120</code></td></tr>
+                            <tr><td><code>g</code></td><td data-i18n="flags.g.meaning">Gender / Formant 偏移</td><td data-i18n="flags.g.range">整数，例如 <code>g-10</code></td></tr>
+                            <tr><td><code>A</code></td><td data-i18n="flags.a.meaning">按音高变化速率调制振幅</td><td data-i18n="flags.a.range"><code>-100..100</code>，例如 <code>A5</code></td></tr>
+                            <tr><td><code>P</code></td><td data-i18n="flags.p.meaning">响度归一化强度</td><td data-i18n="flags.p.range"><code>0..100</code>，例如 <code>P80</code></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -694,12 +702,12 @@
         <!-- ══ Config ══ -->
         <div class="page" id="p-cfg">
             <div class="sec">
-                <h2>⚙ 运行时配置
+                <h2><span data-i18n="cfg.title">⚙ 运行时配置</span>
                     <div style="flex:1"></div>
-                    <button class="btn btn-p" onclick="saveCfg()">💾 保存配置</button>
-                    <button class="btn" onclick="loadCfg()">🔄 重置</button>
+                    <button class="btn btn-p" onclick="saveCfg()" data-i18n="cfg.save">💾 保存配置</button>
+                    <button class="btn" onclick="loadCfg()" data-i18n="cfg.reset">🔄 重置</button>
                 </h2>
-                <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">修改配置后点击「保存配置」将写入
+                <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;" data-i18n="cfg.desc">修改配置后点击「保存配置」将写入
                     config.yaml。部分设置需要重启服务才能生效。</p>
                 <div class="cfg-grid" id="cfgGrid"></div>
             </div>
@@ -707,44 +715,44 @@
         <!-- ══ Setup ══ -->
         <div class="page" id="p-set">
             <div class="sec wiz">
-                <h2>🔧 OpenUTAU 安装向导</h2>
-                <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">将 HiFiSampler 桥接程序安装到 OpenUTAU，只需 3
+                <h2 data-i18n="setup.title">🔧 OpenUTAU 安装向导</h2>
+                <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;" data-i18n="setup.desc">将 HiFiSampler 桥接程序安装到 OpenUTAU，只需 3
                     步。</p>
                 <div class="step">
                     <div class="step-h">
                         <div class="step-n">1</div>
-                        <div class="step-t">选择 OpenUTAU Resamplers 目录</div>
+                        <div class="step-t" data-i18n="setup.step1.title">选择 OpenUTAU Resamplers 目录</div>
                     </div>
                     <div class="step-b">
-                        <p>打开 OpenUTAU 安装目录，找到 <code>Resamplers</code> 文件夹。</p>
-                        <p>通常位于：<code>C:\Users\你的用户名\OpenUtau\Resamplers</code></p>
-                        <p>或 OpenUTAU 程序所在目录下的 <code>Resamplers</code> 文件夹。</p>
-                        <input class="path-in" id="ouPath" placeholder="输入或粘贴 Resamplers 文件夹的完整路径">
+                        <p data-i18n="setup.step1.p1">打开 OpenUTAU 安装目录，找到 <code>Resamplers</code> 文件夹。</p>
+                        <p data-i18n="setup.step1.p2">通常位于：<code>C:\Users\你的用户名\OpenUtau\Resamplers</code></p>
+                        <p data-i18n="setup.step1.p3">或 OpenUTAU 程序所在目录下的 <code>Resamplers</code> 文件夹。</p>
+                        <input class="path-in" id="ouPath" data-i18n-ph="setup.step1.placeholder" placeholder="输入或粘贴 Resamplers 文件夹的完整路径">
                     </div>
                 </div>
                 <div class="step">
                     <div class="step-h">
                         <div class="step-n">2</div>
-                        <div class="step-t">安装桥接程序</div>
+                        <div class="step-t" data-i18n="setup.step2.title">安装桥接程序</div>
                     </div>
                     <div class="step-b">
-                        <p>点击下方按钮，将 <code>hifisampler.exe</code> 复制到 Resamplers 目录。</p>
-                        <button class="btn btn-ok" onclick="installBridge()">📦 安装桥接程序</button>
+                        <p data-i18n="setup.step2.p1">点击下方按钮，将 <code>hifisampler.exe</code> 复制到 Resamplers 目录。</p>
+                        <button class="btn btn-ok" onclick="installBridge()" data-i18n="setup.step2.install">📦 安装桥接程序</button>
                         <div id="instSt"></div>
                     </div>
                 </div>
                 <div class="step">
                     <div class="step-h">
                         <div class="step-n">3</div>
-                        <div class="step-t">配置 OpenUTAU</div>
+                        <div class="step-t" data-i18n="setup.step3.title">配置 OpenUTAU</div>
                     </div>
                     <div class="step-b">
                         <ol style="padding-left:18px;line-height:2">
-                            <li><strong>重启 OpenUTAU</strong></li>
-                            <li>切换到 <strong>Classic 模式</strong></li>
-                            <li>点击右上角 <strong>🔧 扳手按钮</strong></li>
-                            <li>在 Resampler 下拉列表中选择 <code>hifisampler.exe</code></li>
-                            <li>完成！享受 HiFi 音质的 UTAU 合成 🎉</li>
+                            <li data-i18n="setup.step3.li1"><strong>重启 OpenUTAU</strong></li>
+                            <li data-i18n="setup.step3.li2">切换到 <strong>Classic 模式</strong></li>
+                            <li data-i18n="setup.step3.li3">点击右上角 <strong>🔧 扳手按钮</strong></li>
+                            <li data-i18n="setup.step3.li4">在 Resampler 下拉列表中选择 <code>hifisampler.exe</code></li>
+                            <li data-i18n="setup.step3.li5">完成！享受 HiFi 音质的 UTAU 合成 🎉</li>
                         </ol>
                     </div>
                 </div>
@@ -753,6 +761,75 @@
     </div>
     <script>
         const B = location.origin;
+        const I18N = {
+            zh: {
+                'status.connecting': '连接中…', 'status.online': '在线', 'status.offline': '离线',
+                'common.exit': '退出', 'common.clear': '清空', 'common.on': '开启', 'common.off': '关闭',
+                'nav.monitor': '📊 监控面板', 'nav.config': '⚙ 配置管理', 'nav.setup': '🔧 安装向导',
+                'card.total_requests': '总请求数', 'card.avg_latency': '平均延迟', 'card.p95_latency': 'P95 延迟', 'card.cache_hit': '缓存命中率', 'card.throughput': '吞吐量', 'card.errors': '错误',
+                'mon.activity': '📈 请求活动', 'mon.breakdown': '📊 耗时分布 (平均)', 'mon.feature': '特征提取', 'mon.synthesis': '合成', 'mon.postprocess': '后处理', 'mon.recent': '📋 最近请求', 'mon.clear_stats': '清空统计',
+                'table.total_ms': '总计(ms)', 'table.feature': '特征', 'table.synthesis': '合成', 'table.postprocess': '后处理', 'table.samples': '采样数', 'table.cache': '缓存', 'table.time': '时间', 'table.source': '来源', 'table.args': '参数',
+                'dbg.title': '🐛 Bridge 调用参数', 'dbg.desc': '显示最近 50 次 bridge 调用传入的原始 CLI 参数（即 POST / 的 body），用于排查 flags 是否真的传到服务端。',
+                'flags.title': '🏷 常用 Flags 速查', 'flags.desc': '用于快速确认 OpenUTAU/UTAU 传参是否生效。可在上方「Bridge 调用参数」里直接检查实际 flags 字符串。', 'flags.meaning': '含义', 'flags.range': '范围 / 例子',
+                'flags.he.meaning': '切换延长策略（与 config 的 <code>processing.loop_mode</code> 互斥反转）', 'flags.he.range': '无数值，例如 <code>He</code>',
+                'flags.hg.meaning': 'Growl', 'flags.hg.range': '<code>0-100</code>，例如 <code>HG50</code>',
+                'flags.ht.meaning': 'Tension（频谱倾斜）', 'flags.ht.range': '<code>-100..100</code>，例如 <code>Ht20</code>',
+                'flags.hb.meaning': 'Breathiness（噪声比例）', 'flags.hb.range': '<code>0..500</code>，例如 <code>Hb80</code>',
+                'flags.hv.meaning': 'Voicing（谐波比例）', 'flags.hv.range': '<code>0..150</code>，例如 <code>Hv120</code>',
+                'flags.g.meaning': 'Gender / Formant 偏移', 'flags.g.range': '整数，例如 <code>g-10</code>',
+                'flags.a.meaning': '按音高变化速率调制振幅', 'flags.a.range': '<code>-100..100</code>，例如 <code>A5</code>',
+                'flags.p.meaning': '响度归一化强度', 'flags.p.range': '<code>0..100</code>，例如 <code>P80</code>',
+                'cfg.title': '⚙ 运行时配置', 'cfg.save': '💾 保存配置', 'cfg.reset': '🔄 重置', 'cfg.desc': '修改配置后点击「保存配置」将写入 config.yaml。部分设置需要重启服务才能生效。',
+                'setup.title': '🔧 OpenUTAU 安装向导', 'setup.desc': '将 HiFiSampler 桥接程序安装到 OpenUTAU，只需 3 步。',
+                'setup.step1.title': '选择 OpenUTAU Resamplers 目录', 'setup.step1.p1': '打开 OpenUTAU 安装目录，找到 <code>Resamplers</code> 文件夹。', 'setup.step1.p2': '通常位于：<code>C:\\Users\\你的用户名\\OpenUtau\\Resamplers</code>', 'setup.step1.p3': '或 OpenUTAU 程序所在目录下的 <code>Resamplers</code> 文件夹。', 'setup.step1.placeholder': '输入或粘贴 Resamplers 文件夹的完整路径',
+                'setup.step2.title': '安装桥接程序', 'setup.step2.p1': '点击下方按钮，将 <code>hifisampler.exe</code> 复制到 Resamplers 目录。', 'setup.step2.install': '📦 安装桥接程序',
+                'setup.step3.title': '配置 OpenUTAU', 'setup.step3.li1': '<strong>重启 OpenUTAU</strong>', 'setup.step3.li2': '切换到 <strong>Classic 模式</strong>', 'setup.step3.li3': '点击右上角 <strong>🔧 扳手按钮</strong>', 'setup.step3.li4': '在 Resampler 下拉列表中选择 <code>hifisampler.exe</code>', 'setup.step3.li5': '完成！享受 HiFi 音质的 UTAU 合成 🎉',
+                'misc.no_records': '暂无记录', 'misc.no_data': '暂无数据', 'misc.no_requests': '暂无请求', 'misc.waiting_data': '等待数据…', 'misc.shutting_down': '退出中...',
+                'toast.stats_cleared': '统计已清空', 'toast.debug_cleared': '调试记录已清空', 'toast.clear_failed': '清空失败', 'toast.load_cfg_failed': '加载配置失败', 'toast.device_fallback': '当前设备在此发行版不可用，已自动回退为 auto', 'toast.cfg_saved': '配置已保存！部分设置重启后生效', 'toast.save_failed': '保存失败: ', 'toast.enter_path': '请先输入 Resamplers 目录路径', 'toast.install_ok': '桥接程序安装成功！', 'toast.install_failed': '安装失败', 'toast.connect_failed': '连接服务器失败', 'toast.installing': '正在安装…',
+                'cfg.group.audio': '音频', 'cfg.group.model': '模型', 'cfg.group.processing': '处理', 'cfg.group.performance': '性能', 'cfg.group.server': '服务器', 'cfg.group.other': '其他',
+                'cfg.sample_rate': '采样率', 'cfg.n_fft': 'FFT 大小', 'cfg.win_size': '窗口大小', 'cfg.hop_size': 'Hop 大小', 'cfg.hop_size_interp': '插值 Hop', 'cfg.num_mels': 'Mel 通道数', 'cfg.fmin': '最低频率', 'cfg.fmax': '最高频率', 'cfg.pad_frames': '填充帧数', 'cfg.vocoder_model': 'Vocoder 模型路径', 'cfg.vocoder_model_type': '模型类型', 'cfg.hnsep_model': 'HN-SEP 模型路径', 'cfg.wave_norm': '波形归一化', 'cfg.wave_norm_clip': '裁剪静音', 'cfg.loop_mode': '循环模式(He可反转)', 'cfg.peak_limit': '峰值限制', 'cfg.num_threads': '推理线程数', 'cfg.device': '设备', 'cfg.device_id': 'DirectML 设备', 'cfg.host': '服务地址', 'cfg.port': '服务端口', 'cfg.device_unavailable': '当前值不可用'
+            },
+            en: {
+                'status.connecting': 'Connecting...', 'status.online': 'Online', 'status.offline': 'Offline',
+                'common.exit': 'Exit', 'common.clear': 'Clear', 'common.on': 'On', 'common.off': 'Off',
+                'nav.monitor': '📊 Monitor', 'nav.config': '⚙ Config', 'nav.setup': '🔧 Setup',
+                'card.total_requests': 'Total Requests', 'card.avg_latency': 'Avg Latency', 'card.p95_latency': 'P95 Latency', 'card.cache_hit': 'Cache Hit Rate', 'card.throughput': 'Throughput', 'card.errors': 'Errors',
+                'mon.activity': '📈 Request Activity', 'mon.breakdown': '📊 Time Breakdown (Avg)', 'mon.feature': 'Feature', 'mon.synthesis': 'Synthesis', 'mon.postprocess': 'Postprocess', 'mon.recent': '📋 Recent Requests', 'mon.clear_stats': 'Clear Stats',
+                'table.total_ms': 'Total(ms)', 'table.feature': 'Feature', 'table.synthesis': 'Synthesis', 'table.postprocess': 'Postprocess', 'table.samples': 'Samples', 'table.cache': 'Cache', 'table.time': 'Time', 'table.source': 'Source', 'table.args': 'Args',
+                'dbg.title': '🐛 Bridge CLI Args', 'dbg.desc': 'Shows latest 50 raw bridge CLI payloads (POST / body) to verify flags are actually passed to server.',
+                'flags.title': '🏷 Flag Quick Reference', 'flags.desc': 'Use this to verify OpenUTAU/UTAU flags. You can also inspect the exact flag string in Bridge CLI Args above.', 'flags.meaning': 'Meaning', 'flags.range': 'Range / Example',
+                'flags.he.meaning': 'Toggle extension strategy (XOR with config <code>processing.loop_mode</code>)', 'flags.he.range': 'No value, e.g. <code>He</code>', 'flags.hg.meaning': 'Growl', 'flags.hg.range': '<code>0-100</code>, e.g. <code>HG50</code>', 'flags.ht.meaning': 'Tension (spectral tilt)', 'flags.ht.range': '<code>-100..100</code>, e.g. <code>Ht20</code>', 'flags.hb.meaning': 'Breathiness (noise ratio)', 'flags.hb.range': '<code>0..500</code>, e.g. <code>Hb80</code>', 'flags.hv.meaning': 'Voicing (harmonic ratio)', 'flags.hv.range': '<code>0..150</code>, e.g. <code>Hv120</code>', 'flags.g.meaning': 'Gender / formant shift', 'flags.g.range': 'Integer, e.g. <code>g-10</code>', 'flags.a.meaning': 'Amplitude modulation by pitch-rate', 'flags.a.range': '<code>-100..100</code>, e.g. <code>A5</code>', 'flags.p.meaning': 'Loudness normalization strength', 'flags.p.range': '<code>0..100</code>, e.g. <code>P80</code>',
+                'cfg.title': '⚙ Runtime Config', 'cfg.save': '💾 Save', 'cfg.reset': '🔄 Reset', 'cfg.desc': 'Click Save to write config.yaml. Some settings require restart.',
+                'setup.title': '🔧 OpenUTAU Setup Wizard', 'setup.desc': 'Install HiFiSampler bridge to OpenUTAU in 3 steps.',
+                'setup.step1.title': 'Choose OpenUTAU Resamplers folder', 'setup.step1.p1': 'Open OpenUTAU install directory and locate <code>Resamplers</code>.', 'setup.step1.p2': 'Usually: <code>C:\\Users\\YourName\\OpenUtau\\Resamplers</code>', 'setup.step1.p3': 'Or under OpenUTAU program folder.', 'setup.step1.placeholder': 'Enter or paste full Resamplers folder path',
+                'setup.step2.title': 'Install bridge', 'setup.step2.p1': 'Click below to copy <code>hifisampler.exe</code> into Resamplers.', 'setup.step2.install': '📦 Install Bridge',
+                'setup.step3.title': 'Configure OpenUTAU', 'setup.step3.li1': '<strong>Restart OpenUTAU</strong>', 'setup.step3.li2': 'Switch to <strong>Classic mode</strong>', 'setup.step3.li3': 'Click the top-right <strong>🔧 wrench</strong>', 'setup.step3.li4': 'Select <code>hifisampler.exe</code> in Resampler dropdown', 'setup.step3.li5': 'Done! Enjoy HiFi UTAU synthesis 🎉',
+                'misc.no_records': 'No records', 'misc.no_data': 'No data', 'misc.no_requests': 'No requests', 'misc.waiting_data': 'Waiting for data...', 'misc.shutting_down': 'Shutting down...',
+                'toast.stats_cleared': 'Stats cleared', 'toast.debug_cleared': 'Debug records cleared', 'toast.clear_failed': 'Clear failed', 'toast.load_cfg_failed': 'Failed to load config', 'toast.device_fallback': 'Selected device is unavailable, fallback to auto', 'toast.cfg_saved': 'Config saved. Some changes require restart', 'toast.save_failed': 'Save failed: ', 'toast.enter_path': 'Please enter Resamplers path first', 'toast.install_ok': 'Bridge installed successfully', 'toast.install_failed': 'Install failed', 'toast.connect_failed': 'Server connection failed', 'toast.installing': 'Installing...',
+                'cfg.group.audio': 'Audio', 'cfg.group.model': 'Model', 'cfg.group.processing': 'Processing', 'cfg.group.performance': 'Performance', 'cfg.group.server': 'Server', 'cfg.group.other': 'Other',
+                'cfg.sample_rate': 'Sample Rate', 'cfg.n_fft': 'FFT Size', 'cfg.win_size': 'Window Size', 'cfg.hop_size': 'Hop Size', 'cfg.hop_size_interp': 'Interp Hop', 'cfg.num_mels': 'Mel Bins', 'cfg.fmin': 'Min Freq', 'cfg.fmax': 'Max Freq', 'cfg.pad_frames': 'Pad Frames', 'cfg.vocoder_model': 'Vocoder Model Path', 'cfg.vocoder_model_type': 'Model Type', 'cfg.hnsep_model': 'HN-SEP Model Path', 'cfg.wave_norm': 'Wave Norm', 'cfg.wave_norm_clip': 'Clip Silence', 'cfg.loop_mode': 'Loop Mode (He invert)', 'cfg.peak_limit': 'Peak Limit', 'cfg.num_threads': 'Inference Threads', 'cfg.device': 'Device', 'cfg.device_id': 'DirectML Device', 'cfg.host': 'Host', 'cfg.port': 'Port', 'cfg.device_unavailable': 'Current value unavailable'
+            }
+        };
+        I18N.ja = { ...I18N.en, 'common.exit': '終了', 'common.clear': 'クリア', 'status.online': 'オンライン', 'status.offline': 'オフライン', 'status.connecting': '接続中...' };
+        I18N.fr = { ...I18N.en, 'common.exit': 'Quitter', 'common.clear': 'Effacer', 'status.online': 'En ligne', 'status.offline': 'Hors ligne', 'status.connecting': 'Connexion...' };
+        I18N.de = { ...I18N.en, 'common.exit': 'Beenden', 'common.clear': 'Leeren', 'status.online': 'Online', 'status.offline': 'Offline', 'status.connecting': 'Verbinden...' };
+        I18N.ru = { ...I18N.en, 'common.exit': 'Выход', 'common.clear': 'Очистить', 'status.online': 'Онлайн', 'status.offline': 'Оффлайн', 'status.connecting': 'Подключение...' };
+        let LANG = localStorage.getItem('hifisampler.lang') || 'zh';
+        function t(k) { return (I18N[LANG] && I18N[LANG][k]) || (I18N.en && I18N.en[k]) || k; }
+        function applyI18n() {
+            document.documentElement.lang = LANG;
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                el.innerHTML = t(key);
+            });
+            document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+                const key = el.getAttribute('data-i18n-ph');
+                el.setAttribute('placeholder', t(key));
+            });
+            const ls = document.getElementById('langSel');
+            if (ls) ls.value = LANG;
+            renderCfg();
+        }
         let curCfg = {};
         let caps = {
             available_devices: ['auto', 'cpu'],
@@ -792,7 +869,7 @@
                 // ignore
             }
         }
-        function setOn(v) { document.getElementById('sd').className = v ? 'dot' : 'dot off'; document.getElementById('st').textContent = v ? '在线' : '离线'; }
+        function setOn(v) { document.getElementById('sd').className = v ? 'dot' : 'dot off'; document.getElementById('st').textContent = v ? t('status.online') : t('status.offline'); }
         function $(id) { return document.getElementById(id); }
 
         function fmtTs(ms) {
@@ -814,7 +891,7 @@
             const tb = $('dbgBody');
             if (!tb) return;
             if (!d || !d.length) {
-                tb.innerHTML = '<tr><td colspan="4" style="color:var(--text-dim);text-align:center">暂无记录</td></tr>';
+                tb.innerHTML = `<tr><td colspan="4" style="color:var(--text-dim);text-align:center">${t('misc.no_records')}</td></tr>`;
                 return;
             }
             tb.innerHTML = d.map((r, i) => {
@@ -840,11 +917,11 @@
             drawChart();
             /* breakdown */
             const bd = $('bkd'), t = d.avg_feature_ms + d.avg_synthesis_ms + d.avg_postprocess_ms;
-            if (t <= 0) { bd.innerHTML = '<div style="color:var(--text-dim);font-size:12px">暂无数据</div>'; }
+            if (t <= 0) { bd.innerHTML = `<div style="color:var(--text-dim);font-size:12px">${t('misc.no_data')}</div>`; }
             else { const fp = (d.avg_feature_ms / t * 100).toFixed(0), sp = (d.avg_synthesis_ms / t * 100).toFixed(0), pp = (d.avg_postprocess_ms / t * 100).toFixed(0); bd.innerHTML = `<div class="sg f" style="flex:${fp}">${d.avg_feature_ms.toFixed(0)}ms (${fp}%)</div><div class="sg s" style="flex:${sp}">${d.avg_synthesis_ms.toFixed(0)}ms (${sp}%)</div><div class="sg p" style="flex:${pp}">${d.avg_postprocess_ms.toFixed(0)}ms (${pp}%)</div>`; }
             /* table */
             const rc = d.recent, tb = $('tbody');
-            if (!rc || !rc.length) { tb.innerHTML = '<tr><td colspan="7" style="color:var(--text-dim);text-align:center">暂无请求</td></tr>'; }
+            if (!rc || !rc.length) { tb.innerHTML = `<tr><td colspan="7" style="color:var(--text-dim);text-align:center">${t('misc.no_requests')}</td></tr>`; }
             else { tb.innerHTML = rc.map((r, i) => `<tr><td>${i + 1}</td><td>${r.total_ms.toFixed(1)}</td><td>${r.feature_ms.toFixed(1)}</td><td>${r.synthesis_ms.toFixed(1)}</td><td>${r.postprocess_ms.toFixed(1)}</td><td>${r.output_samples}</td><td>${r.cache_hit ? '✓' : '✗'}</td></tr>`).join(''); }
         }
         /* ── canvas chart ── */
@@ -861,7 +938,7 @@
             ctx.clearRect(0, 0, W, H);
             if (tsData.length < 2) {
                 ctx.fillStyle = '#9ca0b4'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
-                ctx.fillText('等待数据…', W / 2, H / 2);
+                ctx.fillText(t('misc.waiting_data'), W / 2, H / 2);
                 return;
             }
             const maxY = Math.max(1, ...tsData.map(p => p.active));
@@ -902,15 +979,15 @@
             const lx = pad.l + cw, ly = pad.t + ch - (tsData[n - 1].active / maxY) * ch;
             ctx.beginPath(); ctx.arc(lx, ly, 3, 0, Math.PI * 2); ctx.fillStyle = '#6c7bf0'; ctx.fill();
         }
-        async function resetStats() { try { await fetch(B + '/stats/reset', { method: 'POST' }); poll(); toast('统计已清空'); } catch { toast('清空失败', false); } }
+        async function resetStats() { try { await fetch(B + '/stats/reset', { method: 'POST' }); poll(); toast(t('toast.stats_cleared')); } catch { toast(t('toast.clear_failed'), false); } }
 
         async function resetDbg() {
             try {
                 await fetch(B + '/debug/bridge-calls/reset', { method: 'POST' });
                 pollDbg();
-                toast('调试记录已清空');
+                toast(t('toast.debug_cleared'));
             } catch {
-                toast('清空失败', false);
+                toast(t('toast.clear_failed'), false);
             }
         }
         async function fetchWithTimeout(url, ms, opt = {}) {
@@ -925,7 +1002,7 @@
         async function exitApp() {
             const btn = $('exitBtn');
             btn.disabled = true;
-            btn.textContent = '退出中...';
+            btn.textContent = t('misc.shutting_down');
             try {
                 await fetchWithTimeout(B + '/refresh?ts=' + Date.now(), 3000);
             } catch (_) {
@@ -941,27 +1018,27 @@
         }
         /* ══ Config ══ */
         const SCH = {
-            sample_rate: { l: '采样率', t: 'number', g: '音频' },
-            n_fft: { l: 'FFT 大小', t: 'number', g: '音频' },
-            win_size: { l: '窗口大小', t: 'number', g: '音频' },
-            hop_size: { l: 'Hop 大小', t: 'number', g: '音频' },
-            hop_size_interp: { l: '插值 Hop', t: 'number', g: '音频' },
-            num_mels: { l: 'Mel 通道数', t: 'number', g: '音频' },
-            fmin: { l: '最低频率', t: 'number', s: .1, g: '音频' },
-            fmax: { l: '最高频率', t: 'number', s: .1, g: '音频' },
-            pad_frames: { l: '填充帧数', t: 'number', g: '音频' },
-            'vocoder.model': { l: 'Vocoder 模型路径', t: 'text', g: '模型' },
-            'vocoder.model_type': { l: '模型类型', t: 'sel', o: ['onnx'], g: '模型' },
-            'hnsep.model': { l: 'HN-SEP 模型路径', t: 'text', g: '模型' },
-            'processing.wave_norm': { l: '波形归一化', t: 'bool', g: '处理' },
-            'processing.wave_norm_clip_silence': { l: '裁剪静音', t: 'bool', g: '处理' },
-            'processing.loop_mode': { l: '循环模式(He可反转)', t: 'bool', g: '处理' },
-            'processing.peak_limit': { l: '峰值限制', t: 'number', s: .01, g: '处理' },
-            'performance.num_threads': { l: '推理线程数', t: 'number', g: '性能' },
-            'performance.device': { l: '设备', t: 'sel', o: ['auto', 'cpu'], g: '性能' },
-            'performance.device_id': { l: 'DirectML 设备', t: 'number', g: '性能' },
-            'server.host': { l: '服务地址', t: 'text', g: '服务器' },
-            'server.port': { l: '服务端口', t: 'number', g: '服务器' },
+            sample_rate: { lk: 'cfg.sample_rate', t: 'number', gk: 'cfg.group.audio' },
+            n_fft: { lk: 'cfg.n_fft', t: 'number', gk: 'cfg.group.audio' },
+            win_size: { lk: 'cfg.win_size', t: 'number', gk: 'cfg.group.audio' },
+            hop_size: { lk: 'cfg.hop_size', t: 'number', gk: 'cfg.group.audio' },
+            hop_size_interp: { lk: 'cfg.hop_size_interp', t: 'number', gk: 'cfg.group.audio' },
+            num_mels: { lk: 'cfg.num_mels', t: 'number', gk: 'cfg.group.audio' },
+            fmin: { lk: 'cfg.fmin', t: 'number', s: .1, gk: 'cfg.group.audio' },
+            fmax: { lk: 'cfg.fmax', t: 'number', s: .1, gk: 'cfg.group.audio' },
+            pad_frames: { lk: 'cfg.pad_frames', t: 'number', gk: 'cfg.group.audio' },
+            'vocoder.model': { lk: 'cfg.vocoder_model', t: 'text', gk: 'cfg.group.model' },
+            'vocoder.model_type': { lk: 'cfg.vocoder_model_type', t: 'sel', o: ['onnx'], gk: 'cfg.group.model' },
+            'hnsep.model': { lk: 'cfg.hnsep_model', t: 'text', gk: 'cfg.group.model' },
+            'processing.wave_norm': { lk: 'cfg.wave_norm', t: 'bool', gk: 'cfg.group.processing' },
+            'processing.wave_norm_clip_silence': { lk: 'cfg.wave_norm_clip', t: 'bool', gk: 'cfg.group.processing' },
+            'processing.loop_mode': { lk: 'cfg.loop_mode', t: 'bool', gk: 'cfg.group.processing' },
+            'processing.peak_limit': { lk: 'cfg.peak_limit', t: 'number', s: .01, gk: 'cfg.group.processing' },
+            'performance.num_threads': { lk: 'cfg.num_threads', t: 'number', gk: 'cfg.group.performance' },
+            'performance.device': { lk: 'cfg.device', t: 'sel', o: ['auto', 'cpu'], gk: 'cfg.group.performance' },
+            'performance.device_id': { lk: 'cfg.device_id', t: 'number', gk: 'cfg.group.performance' },
+            'server.host': { lk: 'cfg.host', t: 'text', gk: 'cfg.group.server' },
+            'server.port': { lk: 'cfg.port', t: 'number', gk: 'cfg.group.server' },
         };
         function gv(o, p) { return p.split('.').reduce((a, k) => (a && a[k] !== undefined ? a[k] : ''), o); }
         function sv(o, p, v) { const ks = p.split('.'); let c = o; for (let i = 0; i < ks.length - 1; i++) { if (!c[ks[i]]) c[ks[i]] = {}; c = c[ks[i]]; } c[ks[ks.length - 1]] = v; }
@@ -990,7 +1067,7 @@
         }
 
         async function loadCfg() {
-            try { const r = await fetch(B + '/config'); curCfg = await r.json(); renderCfg(); } catch { toast('加载配置失败', false); }
+            try { const r = await fetch(B + '/config'); curCfg = await r.json(); renderCfg(); } catch { toast(t('toast.load_cfg_failed'), false); }
         }
         function renderCfg() {
             const g = $('cfgGrid'), grps = {};
@@ -999,16 +1076,16 @@
 
             for (const [p, s] of Object.entries(sch)) {
                 if (p === 'performance.device_id' && !isDirectMLSelected()) continue;
-                const gn = s.g || '其他';
+                const gn = t(s.gk || 'cfg.group.other');
                 if (!grps[gn]) grps[gn] = [];
-                grps[gn].push({ p, ...s, v: gv(curCfg, p) });
+                grps[gn].push({ p, ...s, l: t(s.lk), v: gv(curCfg, p) });
             }
             let h = '';
             for (const [gn, items] of Object.entries(grps)) {
                 h += `<div class="cfg-hdr">${gn}</div>`;
                 for (const it of items) {
                     h += `<div class="cfg-i"><span class="k" title="${it.p}">${it.l}</span>`;
-                    if (it.t === 'bool') h += `<select data-p="${it.p}" class="ci"><option value="true" ${it.v ? 'selected' : ''}>开启</option><option value="false" ${!it.v ? 'selected' : ''}>关闭</option></select>`;
+                    if (it.t === 'bool') h += `<select data-p="${it.p}" class="ci"><option value="true" ${it.v ? 'selected' : ''}>${t('common.on')}</option><option value="false" ${!it.v ? 'selected' : ''}>${t('common.off')}</option></select>`;
                     else if (it.p === 'performance.device_id' && caps.dml_adapters && caps.dml_adapters.length) {
                         h += `<select data-p="${it.p}" class="ci">`;
                         for (const ad of caps.dml_adapters) {
@@ -1022,7 +1099,7 @@
                     else h += `<input data-p="${it.p}" class="ci" type="${it.t}" value="${it.v}" ${it.s ? 'step="' + it.s + '"' : ''}>`;
 
                     if (it.p === 'performance.device' && !availableDevices().includes(normDevice(it.v))) {
-                        h += `<span style="color:var(--red);font-size:11px;">当前值不可用</span>`;
+                        h += `<span style="color:var(--red);font-size:11px;">${t('cfg.device_unavailable')}</span>`;
                     }
 
                     h += '</div>';
@@ -1052,25 +1129,31 @@
             const currentDevice = normDevice(gv(cfg, 'performance.device'));
             if (!availableDevices().includes(currentDevice)) {
                 sv(cfg, 'performance.device', 'auto');
-                toast('当前设备在此发行版不可用，已自动回退为 auto', false);
+                toast(t('toast.device_fallback'), false);
             }
 
-            try { const r = await fetch(B + '/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) }); if (!r.ok) throw new Error(await r.text()); curCfg = cfg; toast('配置已保存！部分设置重启后生效'); } catch (e) { toast('保存失败: ' + e.message, false); }
+            try { const r = await fetch(B + '/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) }); if (!r.ok) throw new Error(await r.text()); curCfg = cfg; toast(t('toast.cfg_saved')); } catch (e) { toast(t('toast.save_failed') + e.message, false); }
         }
         /* ══ Setup ══ */
         async function installBridge() {
             const p = $('ouPath').value.trim();
-            if (!p) { toast('请先输入 Resamplers 目录路径', false); return; }
+            if (!p) { toast(t('toast.enter_path'), false); return; }
             const st = $('instSt');
-            st.innerHTML = '<div class="smsg in">正在安装…</div>';
+            st.innerHTML = `<div class="smsg in">${t('toast.installing')}</div>`;
             try {
                 const r = await fetch(B + '/install-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p }) });
                 const j = await r.json();
-                if (r.ok) { st.innerHTML = '<div class="smsg ok">✅ ' + j.message + '</div>'; toast('桥接程序安装成功！'); }
-                else { st.innerHTML = '<div class="smsg er">❌ ' + j.error + '</div>'; toast('安装失败', false); }
-            } catch { st.innerHTML = '<div class="smsg er">❌ 连接服务器失败</div>'; toast('安装失败', false); }
+                if (r.ok) { st.innerHTML = '<div class="smsg ok">✅ ' + j.message + '</div>'; toast(t('toast.install_ok')); }
+                else { st.innerHTML = '<div class="smsg er">❌ ' + j.error + '</div>'; toast(t('toast.install_failed'), false); }
+            } catch { st.innerHTML = `<div class="smsg er">❌ ${t('toast.connect_failed')}</div>`; toast(t('toast.install_failed'), false); }
         }
         /* ── init ── */
+        $('langSel').onchange = (e) => {
+            LANG = e.target.value;
+            localStorage.setItem('hifisampler.lang', LANG);
+            applyI18n();
+        };
+        applyI18n();
         poll(); pollDbg();
         loadCaps().then(loadCfg);
         setInterval(poll, 200);

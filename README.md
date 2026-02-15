@@ -63,6 +63,26 @@ Binaries will be in `target/release/`:
 
 Access the monitoring dashboard at `http://127.0.0.1:8572/ui/` when the server is running.
 
+## Common UTAU Flags
+
+The WebUI monitor page now includes a quick-reference table for common flags. Useful ones in HiFiSampler-RS:
+
+- `He`: toggles extension strategy against `processing.loop_mode`
+- `HG0..100`: growl strength
+- `Ht-100..100`: tension (spectral tilt)
+- `Hb0..500`: breathiness (noise amount)
+- `Hv0..150`: voicing (harmonic amount)
+- `g...`: gender/formant shift
+- `A-100..100`: amplitude modulation by pitch-rate
+- `P0..100`: loudness normalization strength
+
+`He` behavior matrix:
+
+- `loop_mode=false`, no `He` => stretch
+- `loop_mode=false`, `He` => loop
+- `loop_mode=true`, no `He` => loop
+- `loop_mode=true`, `He` => stretch
+
 ## License
 
 MIT

@@ -159,7 +159,7 @@ pub struct UtauFlags {
     pub p: i32,
     /// Force regenerate cache
     pub gen_cache: bool,
-    /// Enable mel loop mode
+    /// Toggle mel loop mode against config default
     pub he: bool,
 }
 

@@ -33,6 +33,8 @@ performance:
   num_threads: 2
   # Execution provider: auto, cpu, cuda, tensorrt, directml, coreml, rocm
   device: auto
+  # DirectML adapter index (0-based)
+  device_id: 0
 
 # Server settings
 server:

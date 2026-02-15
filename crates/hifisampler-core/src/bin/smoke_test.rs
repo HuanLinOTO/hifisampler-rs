@@ -24,6 +24,7 @@ fn main() -> anyhow::Result<()> {
     let mut vocoder = Vocoder::load(
         &config.vocoder.model,
         &config.performance.device,
+        config.performance.device_id,
         config.performance.num_threads,
     )?;
     println!("    ✓ Vocoder loaded");
@@ -54,6 +55,7 @@ fn main() -> anyhow::Result<()> {
             config.n_fft,
             config.hop_size,
             &config.performance.device,
+            config.performance.device_id,
             config.performance.num_threads,
         )?;
         println!("    ✓ HN-SEP loaded");

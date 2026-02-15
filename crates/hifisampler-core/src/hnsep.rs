@@ -26,6 +26,7 @@ impl HnsepModel {
         n_fft: usize,
         hop_length: usize,
         device: &str,
+        device_id: i32,
         num_threads: usize,
     ) -> Result<Self> {
         let path = model_path.as_ref();
@@ -33,7 +34,7 @@ impl HnsepModel {
 
         let mut builder = Session::builder()?;
 
-        let eps = build_execution_providers(device);
+        let eps = build_execution_providers(device, device_id);
         if !eps.is_empty() {
             builder = builder.with_execution_providers(eps)?;
         }

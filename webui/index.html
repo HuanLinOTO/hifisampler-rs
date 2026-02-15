@@ -292,6 +292,13 @@
             white-space: nowrap;
         }
 
+        .rt td.args {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            white-space: pre-wrap;
+            word-break: break-word;
+            color: #d7dbef;
+        }
+
         /* ── Config form ── */
         .cfg-grid {
             display: grid;
@@ -639,6 +646,24 @@
                     </table>
                 </div>
             </div>
+
+            <div class="sec">
+                <h2>🐛 Bridge 调用参数 <div style="flex:1"></div> <button class="btn" onclick="resetDbg()">清空</button></h2>
+                <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">显示最近 50 次 bridge 调用传入的原始 CLI 参数（即 POST / 的 body），用于排查 flags 是否真的传到服务端。</p>
+                <div class="tw">
+                    <table class="rt">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>时间</th>
+                                <th>来源</th>
+                                <th>参数</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dbgBody"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
         <!-- ══ Config ══ -->
         <div class="page" id="p-cfg">
@@ -725,8 +750,49 @@
                 upMon(d); setOn(true);
             } catch { setOn(false); }
         }
+
+        async function pollDbg() {
+            try {
+                const r = await fetch(B + '/debug/bridge-calls', { cache: 'no-store' });
+                if (!r.ok) throw 0;
+                const d = await r.json();
+                upDbg(d);
+            } catch {
+                // ignore
+            }
+        }
         function setOn(v) { document.getElementById('sd').className = v ? 'dot' : 'dot off'; document.getElementById('st').textContent = v ? '在线' : '离线'; }
         function $(id) { return document.getElementById(id); }
+
+        function fmtTs(ms) {
+            const dt = new Date(ms);
+            const pad = (n) => String(n).padStart(2, '0');
+            return pad(dt.getHours()) + ':' + pad(dt.getMinutes()) + ':' + pad(dt.getSeconds());
+        }
+
+        function esc(s) {
+            return (s ?? '').toString()
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function upDbg(d) {
+            const tb = $('dbgBody');
+            if (!tb) return;
+            if (!d || !d.length) {
+                tb.innerHTML = '<tr><td colspan="4" style="color:var(--text-dim);text-align:center">暂无记录</td></tr>';
+                return;
+            }
+            tb.innerHTML = d.map((r, i) => {
+                const args = esc(r.args || '');
+                const remote = esc(r.remote || '');
+                const ts = fmtTs(r.unix_ms || 0);
+                return `<tr><td>${i + 1}</td><td>${ts}</td><td>${remote}</td><td class="args">${args}</td></tr>`;
+            }).join('');
+        }
         /* ── time-series data ── */
         const TS_MAX = 150; // 150 points × 0.2s = 30s window
         const tsData = [];  // [{t: Date, active: number}]
@@ -806,6 +872,16 @@
             ctx.beginPath(); ctx.arc(lx, ly, 3, 0, Math.PI * 2); ctx.fillStyle = '#6c7bf0'; ctx.fill();
         }
         async function resetStats() { try { await fetch(B + '/stats/reset', { method: 'POST' }); poll(); toast('统计已清空'); } catch { toast('清空失败', false); } }
+
+        async function resetDbg() {
+            try {
+                await fetch(B + '/debug/bridge-calls/reset', { method: 'POST' });
+                pollDbg();
+                toast('调试记录已清空');
+            } catch {
+                toast('清空失败', false);
+            }
+        }
         async function fetchWithTimeout(url, ms, opt = {}) {
             const ac = new AbortController();
             const t = setTimeout(() => ac.abort(), ms);
@@ -895,7 +971,9 @@
             } catch { st.innerHTML = '<div class="smsg er">❌ 连接服务器失败</div>'; toast('安装失败', false); }
         }
         /* ── init ── */
-        poll(); loadCfg(); setInterval(poll, 200);
+        poll(); pollDbg(); loadCfg();
+        setInterval(poll, 200);
+        setInterval(pollDbg, 800);
     </script>
 </body>
 

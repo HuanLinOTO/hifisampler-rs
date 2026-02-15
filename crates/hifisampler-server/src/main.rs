@@ -22,8 +22,10 @@ use hifisampler_core::{
     cache::CacheManager, config::Config, models::Models, parse_utau::UtauParams, resampler,
 };
 use parking_lot::Mutex;
+use serde::Serialize;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -75,7 +77,18 @@ struct AppState {
     last_activity_unix: Arc<AtomicU64>,
     shutdown_requested: Arc<AtomicBool>,
     shutdown_tx: tokio::sync::watch::Sender<bool>,
+
+    debug_bridge_calls: Arc<Mutex<VecDeque<DebugBridgeCall>>>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+struct DebugBridgeCall {
+    unix_ms: u64,
+    remote: String,
+    args: String,
+}
+
+const DEBUG_BRIDGE_CALLS_MAX: usize = 50;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -120,6 +133,8 @@ async fn main() -> Result<()> {
         last_activity_unix: Arc::new(AtomicU64::new(now_unix_secs())),
         shutdown_requested: Arc::new(AtomicBool::new(false)),
         shutdown_tx,
+
+        debug_bridge_calls: Arc::new(Mutex::new(VecDeque::with_capacity(DEBUG_BRIDGE_CALLS_MAX))),
     };
 
     if state.managed {
@@ -155,6 +170,8 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/", get(health_check))
         .route("/", post(inference_handler))
+        .route("/debug/bridge-calls", get(debug_bridge_calls_handler))
+        .route("/debug/bridge-calls/reset", post(debug_bridge_calls_reset_handler))
         .route("/refresh", get(refresh_handler))
         .route("/stats", get(stats_handler))
         .route("/stats/reset", post(stats_reset_handler))
@@ -324,11 +341,17 @@ async fn health_check(State(state): State<AppState>) -> Response {
 ///
 /// Clones Arc refs into `spawn_blocking` — no global Mutex lock.
 /// Models internally use per-model Mutex (only locked for actual ONNX calls).
-async fn inference_handler(State(state): State<AppState>, body: String) -> impl IntoResponse {
+async fn inference_handler(
+    ConnectInfo(remote): ConnectInfo<SocketAddr>,
+    State(state): State<AppState>,
+    body: String,
+) -> impl IntoResponse {
     state
         .last_activity_unix
         .store(now_unix_secs(), Ordering::Relaxed);
     let body = body.trim().to_string();
+
+    record_bridge_call(&state, remote, &body);
 
     // Parse params (cheap, no lock needed)
     let params = match UtauParams::parse(&body) {
@@ -373,6 +396,21 @@ async fn inference_handler(State(state): State<AppState>, body: String) -> impl 
     }
 }
 
+async fn debug_bridge_calls_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let calls: Vec<DebugBridgeCall> = state
+        .debug_bridge_calls
+        .lock()
+        .iter()
+        .cloned()
+        .collect();
+    (StatusCode::OK, axum::Json(calls))
+}
+
+async fn debug_bridge_calls_reset_handler(State(state): State<AppState>) -> impl IntoResponse {
+    state.debug_bridge_calls.lock().clear();
+    (StatusCode::OK, "OK")
+}
+
 async fn shutdown_handler(State(state): State<AppState>) -> impl IntoResponse {
     request_shutdown(&state, "requested from WebUI");
     (StatusCode::OK, "Shutting down")
@@ -415,6 +453,33 @@ fn now_unix_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+fn now_unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn record_bridge_call(state: &AppState, remote: SocketAddr, args: &str) {
+    // Keep payload bounded to avoid unbounded memory growth if a client sends huge bodies.
+    const MAX_ARGS_BYTES: usize = 8192;
+    let mut args = args.to_string();
+    if args.len() > MAX_ARGS_BYTES {
+        args.truncate(MAX_ARGS_BYTES);
+        args.push_str("…");
+    }
+
+    let mut q = state.debug_bridge_calls.lock();
+    while q.len() >= DEBUG_BRIDGE_CALLS_MAX {
+        q.pop_front();
+    }
+    q.push_back(DebugBridgeCall {
+        unix_ms: now_unix_ms(),
+        remote: remote.to_string(),
+        args,
+    });
 }
 
 fn is_allowed_bridge_install_dir(target_dir: &Path) -> bool {

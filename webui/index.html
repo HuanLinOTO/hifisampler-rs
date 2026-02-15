@@ -814,7 +814,9 @@
         I18N.fr = { ...I18N.en, 'common.exit': 'Quitter', 'common.clear': 'Effacer', 'status.online': 'En ligne', 'status.offline': 'Hors ligne', 'status.connecting': 'Connexion...' };
         I18N.de = { ...I18N.en, 'common.exit': 'Beenden', 'common.clear': 'Leeren', 'status.online': 'Online', 'status.offline': 'Offline', 'status.connecting': 'Verbinden...' };
         I18N.ru = { ...I18N.en, 'common.exit': 'Выход', 'common.clear': 'Очистить', 'status.online': 'Онлайн', 'status.offline': 'Оффлайн', 'status.connecting': 'Подключение...' };
+        const SUPPORTED_LANGS = ['zh', 'ja', 'en', 'fr', 'de', 'ru'];
         let LANG = localStorage.getItem('hifisampler.lang') || 'zh';
+        if (!SUPPORTED_LANGS.includes(LANG)) LANG = 'zh';
         function t(k) { return (I18N[LANG] && I18N[LANG][k]) || (I18N.en && I18N.en[k]) || k; }
         function applyI18n() {
             document.documentElement.lang = LANG;
@@ -916,9 +918,9 @@
             while (tsData.length > TS_MAX) tsData.shift();
             drawChart();
             /* breakdown */
-            const bd = $('bkd'), t = d.avg_feature_ms + d.avg_synthesis_ms + d.avg_postprocess_ms;
-            if (t <= 0) { bd.innerHTML = `<div style="color:var(--text-dim);font-size:12px">${t('misc.no_data')}</div>`; }
-            else { const fp = (d.avg_feature_ms / t * 100).toFixed(0), sp = (d.avg_synthesis_ms / t * 100).toFixed(0), pp = (d.avg_postprocess_ms / t * 100).toFixed(0); bd.innerHTML = `<div class="sg f" style="flex:${fp}">${d.avg_feature_ms.toFixed(0)}ms (${fp}%)</div><div class="sg s" style="flex:${sp}">${d.avg_synthesis_ms.toFixed(0)}ms (${sp}%)</div><div class="sg p" style="flex:${pp}">${d.avg_postprocess_ms.toFixed(0)}ms (${pp}%)</div>`; }
+            const bd = $('bkd'), totalMs = d.avg_feature_ms + d.avg_synthesis_ms + d.avg_postprocess_ms;
+            if (totalMs <= 0) { bd.innerHTML = `<div style="color:var(--text-dim);font-size:12px">${t('misc.no_data')}</div>`; }
+            else { const fp = (d.avg_feature_ms / totalMs * 100).toFixed(0), sp = (d.avg_synthesis_ms / totalMs * 100).toFixed(0), pp = (d.avg_postprocess_ms / totalMs * 100).toFixed(0); bd.innerHTML = `<div class="sg f" style="flex:${fp}">${d.avg_feature_ms.toFixed(0)}ms (${fp}%)</div><div class="sg s" style="flex:${sp}">${d.avg_synthesis_ms.toFixed(0)}ms (${sp}%)</div><div class="sg p" style="flex:${pp}">${d.avg_postprocess_ms.toFixed(0)}ms (${pp}%)</div>`; }
             /* table */
             const rc = d.recent, tb = $('tbody');
             if (!rc || !rc.length) { tb.innerHTML = `<tr><td colspan="7" style="color:var(--text-dim);text-align:center">${t('misc.no_requests')}</td></tr>`; }
@@ -1143,13 +1145,13 @@
             try {
                 const r = await fetch(B + '/install-bridge', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p }) });
                 const j = await r.json();
-                if (r.ok) { st.innerHTML = '<div class="smsg ok">✅ ' + j.message + '</div>'; toast(t('toast.install_ok')); }
-                else { st.innerHTML = '<div class="smsg er">❌ ' + j.error + '</div>'; toast(t('toast.install_failed'), false); }
+                if (r.ok) { st.innerHTML = '<div class="smsg ok">✅ ' + esc(String(j.message || '')) + '</div>'; toast(t('toast.install_ok')); }
+                else { st.innerHTML = '<div class="smsg er">❌ ' + esc(String(j.error || '')) + '</div>'; toast(t('toast.install_failed'), false); }
             } catch { st.innerHTML = `<div class="smsg er">❌ ${t('toast.connect_failed')}</div>`; toast(t('toast.install_failed'), false); }
         }
         /* ── init ── */
         $('langSel').onchange = (e) => {
-            LANG = e.target.value;
+            LANG = SUPPORTED_LANGS.includes(e.target.value) ? e.target.value : 'zh';
             localStorage.setItem('hifisampler.lang', LANG);
             applyI18n();
         };

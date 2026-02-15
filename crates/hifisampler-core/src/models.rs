@@ -22,12 +22,14 @@ impl Models {
         info!("Loading models...");
 
         let device = &config.performance.device;
+        let device_id = config.performance.device_id;
         let num_threads = config.performance.num_threads;
 
         // Load vocoder
         let vocoder = Arc::new(Mutex::new(Vocoder::load(
             &config.vocoder.model,
             device,
+            device_id,
             num_threads,
         )?));
 
@@ -38,6 +40,7 @@ impl Models {
                 config.n_fft,
                 config.hop_size,
                 device,
+                device_id,
                 num_threads,
             )?)))
         } else {

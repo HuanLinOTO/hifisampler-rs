@@ -78,6 +78,12 @@ pub struct PerformanceConfig {
     /// - `"rocm"` — AMD ROCm (Linux)
     #[serde(default = "default_device")]
     pub device: String,
+
+    /// Device ID for execution providers that support selecting a specific device.
+    ///
+    /// Currently used by DirectML (`directml` / `dml`).
+    #[serde(default = "default_device_id")]
+    pub device_id: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,6 +139,9 @@ fn default_num_threads() -> usize {
 }
 fn default_device() -> String {
     "auto".to_string()
+}
+fn default_device_id() -> i32 {
+    0
 }
 fn default_true() -> bool {
     true
@@ -198,6 +207,7 @@ impl Default for PerformanceConfig {
         Self {
             num_threads: default_num_threads(),
             device: default_device(),
+            device_id: default_device_id(),
         }
     }
 }

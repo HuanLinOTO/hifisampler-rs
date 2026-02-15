@@ -18,13 +18,18 @@ impl Vocoder {
     /// Load a HiFi-GAN ONNX model.
     ///
     /// `device` controls the execution provider — see [`crate::ep::build_execution_providers`].
-    pub fn load(model_path: impl AsRef<Path>, device: &str, num_threads: usize) -> Result<Self> {
+    pub fn load(
+        model_path: impl AsRef<Path>,
+        device: &str,
+        device_id: i32,
+        num_threads: usize,
+    ) -> Result<Self> {
         let path = model_path.as_ref();
         info!("Loading vocoder from: {}", path.display());
 
         let mut builder = Session::builder()?;
 
-        let eps = build_execution_providers(device);
+        let eps = build_execution_providers(device, device_id);
         if !eps.is_empty() {
             builder = builder.with_execution_providers(eps)?;
         }

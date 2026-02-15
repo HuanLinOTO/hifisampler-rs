@@ -728,6 +728,11 @@
     <script>
         const B = location.origin;
         let curCfg = {};
+        let caps = {
+            available_devices: ['auto', 'cpu'],
+            available_eps_raw: [],
+            dml_adapters: [],
+        };
         /* ── tabs ── */
         document.querySelectorAll('.nav-t').forEach(t => t.onclick = () => {
             document.querySelectorAll('.nav-t').forEach(x => x.classList.remove('on'));
@@ -927,34 +932,103 @@
             'processing.loop_mode': { l: '循环模式', t: 'bool', g: '处理' },
             'processing.peak_limit': { l: '峰值限制', t: 'number', s: .01, g: '处理' },
             'performance.num_threads': { l: '推理线程数', t: 'number', g: '性能' },
-            'performance.device': { l: '设备', t: 'sel', o: ['auto', 'cpu', 'cuda', 'tensorrt', 'directml', 'coreml'], g: '性能' },
+            'performance.device': { l: '设备', t: 'sel', o: ['auto', 'cpu'], g: '性能' },
+            'performance.device_id': { l: 'DirectML 设备', t: 'number', g: '性能' },
             'server.host': { l: '服务地址', t: 'text', g: '服务器' },
             'server.port': { l: '服务端口', t: 'number', g: '服务器' },
         };
         function gv(o, p) { return p.split('.').reduce((a, k) => (a && a[k] !== undefined ? a[k] : ''), o); }
         function sv(o, p, v) { const ks = p.split('.'); let c = o; for (let i = 0; i < ks.length - 1; i++) { if (!c[ks[i]]) c[ks[i]] = {}; c = c[ks[i]]; } c[ks[ks.length - 1]] = v; }
+
+        function normDevice(v) { return (v || '').toString().trim().toLowerCase(); }
+        function availableDevices() {
+            const ds = Array.isArray(caps.available_devices) ? caps.available_devices : ['auto', 'cpu'];
+            return ds.map(normDevice).filter(Boolean);
+        }
+        function isDirectMLSelected() {
+            const d = normDevice(gv(curCfg, 'performance.device'));
+            return d === 'directml' || d === 'dml';
+        }
+
+        async function loadCaps() {
+            try {
+                const r = await fetch(B + '/capabilities', { cache: 'no-store' });
+                if (!r.ok) throw new Error(await r.text());
+                const d = await r.json();
+                if (Array.isArray(d.available_devices) && d.available_devices.length) caps.available_devices = d.available_devices;
+                caps.available_eps_raw = Array.isArray(d.available_eps_raw) ? d.available_eps_raw : [];
+                caps.dml_adapters = Array.isArray(d.dml_adapters) ? d.dml_adapters : [];
+            } catch {
+                caps = { available_devices: ['auto', 'cpu'], available_eps_raw: [], dml_adapters: [] };
+            }
+        }
+
         async function loadCfg() {
             try { const r = await fetch(B + '/config'); curCfg = await r.json(); renderCfg(); } catch { toast('加载配置失败', false); }
         }
         function renderCfg() {
             const g = $('cfgGrid'), grps = {};
-            for (const [p, s] of Object.entries(SCH)) { const gn = s.g || '其他'; if (!grps[gn]) grps[gn] = []; grps[gn].push({ p, ...s, v: gv(curCfg, p) }); }
+            const sch = JSON.parse(JSON.stringify(SCH));
+            sch['performance.device'].o = availableDevices();
+
+            for (const [p, s] of Object.entries(sch)) {
+                if (p === 'performance.device_id' && !isDirectMLSelected()) continue;
+                const gn = s.g || '其他';
+                if (!grps[gn]) grps[gn] = [];
+                grps[gn].push({ p, ...s, v: gv(curCfg, p) });
+            }
             let h = '';
             for (const [gn, items] of Object.entries(grps)) {
                 h += `<div class="cfg-hdr">${gn}</div>`;
                 for (const it of items) {
                     h += `<div class="cfg-i"><span class="k" title="${it.p}">${it.l}</span>`;
                     if (it.t === 'bool') h += `<select data-p="${it.p}" class="ci"><option value="true" ${it.v ? 'selected' : ''}>开启</option><option value="false" ${!it.v ? 'selected' : ''}>关闭</option></select>`;
-                    else if (it.t === 'sel') { h += `<select data-p="${it.p}" class="ci">`; for (const o of it.o) h += `<option value="${o}" ${it.v === o ? 'selected' : ''}>${o}</option>`; h += '</select>'; }
+                    else if (it.p === 'performance.device_id' && caps.dml_adapters && caps.dml_adapters.length) {
+                        h += `<select data-p="${it.p}" class="ci">`;
+                        for (const ad of caps.dml_adapters) {
+                            const val = Number(ad.id);
+                            const selected = Number(it.v) === val ? 'selected' : '';
+                            h += `<option value="${val}" ${selected}>${ad.name || ('Adapter ' + val)} (#${val})</option>`;
+                        }
+                        h += '</select>';
+                    }
+                    else if (it.t === 'sel') { h += `<select data-p="${it.p}" class="ci">`; for (const o of it.o) h += `<option value="${o}" ${normDevice(it.v) === normDevice(o) ? 'selected' : ''}>${o}</option>`; h += '</select>'; }
                     else h += `<input data-p="${it.p}" class="ci" type="${it.t}" value="${it.v}" ${it.s ? 'step="' + it.s + '"' : ''}>`;
+
+                    if (it.p === 'performance.device' && !availableDevices().includes(normDevice(it.v))) {
+                        h += `<span style="color:var(--red);font-size:11px;">当前值不可用</span>`;
+                    }
+
                     h += '</div>';
                 }
             }
             g.innerHTML = h;
+
+            const devSel = document.querySelector('.ci[data-p="performance.device"]');
+            if (devSel) {
+                devSel.onchange = () => {
+                    sv(curCfg, 'performance.device', devSel.value);
+                    renderCfg();
+                };
+            }
         }
         async function saveCfg() {
             const cfg = JSON.parse(JSON.stringify(curCfg));
-            document.querySelectorAll('.ci').forEach(el => { const p = el.dataset.p, s = SCH[p]; let v = el.value; if (s.t === 'number') v = Number(v); else if (s.t === 'bool') v = v === 'true'; sv(cfg, p, v); });
+            document.querySelectorAll('.ci').forEach(el => {
+                const p = el.dataset.p;
+                const s = SCH[p] || {};
+                let v = el.value;
+                if (s.t === 'number' || p === 'performance.device_id') v = Number(v);
+                else if (s.t === 'bool') v = v === 'true';
+                sv(cfg, p, v);
+            });
+
+            const currentDevice = normDevice(gv(cfg, 'performance.device'));
+            if (!availableDevices().includes(currentDevice)) {
+                sv(cfg, 'performance.device', 'auto');
+                toast('当前设备在此发行版不可用，已自动回退为 auto', false);
+            }
+
             try { const r = await fetch(B + '/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) }); if (!r.ok) throw new Error(await r.text()); curCfg = cfg; toast('配置已保存！部分设置重启后生效'); } catch (e) { toast('保存失败: ' + e.message, false); }
         }
         /* ══ Setup ══ */
@@ -971,7 +1045,8 @@
             } catch { st.innerHTML = '<div class="smsg er">❌ 连接服务器失败</div>'; toast('安装失败', false); }
         }
         /* ── init ── */
-        poll(); pollDbg(); loadCfg();
+        poll(); pollDbg();
+        loadCaps().then(loadCfg);
         setInterval(poll, 200);
         setInterval(pollDbg, 800);
     </script>

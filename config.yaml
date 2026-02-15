@@ -27,6 +27,7 @@ processing:
 performance:
   num_threads: 2
   device: auto
+  device_id: 0
 
 server:
   host: "127.0.0.1"

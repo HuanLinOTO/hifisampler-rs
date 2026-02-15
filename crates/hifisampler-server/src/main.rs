@@ -19,7 +19,12 @@ use axum::{
 };
 use clap::Parser;
 use hifisampler_core::{
-    cache::CacheManager, config::Config, models::Models, parse_utau::UtauParams, resampler,
+    cache::CacheManager,
+    config::Config,
+    ep::detect_ep_capabilities,
+    models::Models,
+    parse_utau::UtauParams,
+    resampler,
 };
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -86,6 +91,22 @@ struct DebugBridgeCall {
     unix_ms: u64,
     remote: String,
     args: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct DmlAdapterInfo {
+    id: i32,
+    name: String,
+    vendor_id: u32,
+    device_id: u32,
+    dedicated_video_memory: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CapabilitiesResponse {
+    available_devices: Vec<String>,
+    available_eps_raw: Vec<String>,
+    dml_adapters: Vec<DmlAdapterInfo>,
 }
 
 const DEBUG_BRIDGE_CALLS_MAX: usize = 50;
@@ -170,6 +191,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/", get(health_check))
         .route("/", post(inference_handler))
+        .route("/capabilities", get(capabilities_handler))
         .route("/debug/bridge-calls", get(debug_bridge_calls_handler))
         .route("/debug/bridge-calls/reset", post(debug_bridge_calls_reset_handler))
         .route("/refresh", get(refresh_handler))
@@ -411,6 +433,29 @@ async fn debug_bridge_calls_reset_handler(State(state): State<AppState>) -> impl
     (StatusCode::OK, "OK")
 }
 
+async fn capabilities_handler() -> impl IntoResponse {
+    let caps = detect_ep_capabilities();
+
+    let dml_adapters = if caps
+        .available_devices
+        .iter()
+        .any(|d| d == "directml" || d == "dml")
+    {
+        enumerate_dml_adapters()
+    } else {
+        Vec::new()
+    };
+
+    (
+        StatusCode::OK,
+        axum::Json(CapabilitiesResponse {
+            available_devices: caps.available_devices,
+            available_eps_raw: caps.available_eps_raw,
+            dml_adapters,
+        }),
+    )
+}
+
 async fn shutdown_handler(State(state): State<AppState>) -> impl IntoResponse {
     request_shutdown(&state, "requested from WebUI");
     (StatusCode::OK, "Shutting down")
@@ -480,6 +525,51 @@ fn record_bridge_call(state: &AppState, remote: SocketAddr, args: &str) {
         remote: remote.to_string(),
         args,
     });
+}
+
+#[cfg(windows)]
+fn enumerate_dml_adapters() -> Vec<DmlAdapterInfo> {
+    use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, DXGI_ERROR_NOT_FOUND, IDXGIFactory1};
+
+    let mut adapters = Vec::new();
+
+    let Ok(factory) = (unsafe { CreateDXGIFactory1::<IDXGIFactory1>() }) else {
+        return adapters;
+    };
+
+    let mut index: u32 = 0;
+    loop {
+        match unsafe { factory.EnumAdapters1(index) } {
+            Ok(adapter) => {
+                if let Ok(desc) = unsafe { adapter.GetDesc1() } {
+                    let end = desc
+                        .Description
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(desc.Description.len());
+                    let name = String::from_utf16_lossy(&desc.Description[..end]);
+
+                    adapters.push(DmlAdapterInfo {
+                        id: index as i32,
+                        name,
+                        vendor_id: desc.VendorId,
+                        device_id: desc.DeviceId,
+                        dedicated_video_memory: desc.DedicatedVideoMemory as u64,
+                    });
+                }
+                index += 1;
+            }
+            Err(e) if e.code().0 == DXGI_ERROR_NOT_FOUND.0 => break,
+            Err(_) => break,
+        }
+    }
+
+    adapters
+}
+
+#[cfg(not(windows))]
+fn enumerate_dml_adapters() -> Vec<DmlAdapterInfo> {
+    Vec::new()
 }
 
 fn is_allowed_bridge_install_dir(target_dir: &Path) -> bool {

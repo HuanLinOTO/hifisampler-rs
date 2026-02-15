@@ -7,11 +7,52 @@
 //! Note: ROCm EP was removed from ONNX Runtime 1.23+. AMD users should use
 //! MIGraphX EP or the DirectML EP (which also supports AMD GPUs on Windows).
 
-use ort::execution_providers::{
-    CUDAExecutionProvider, CoreMLExecutionProvider, DirectMLExecutionProvider,
-    ExecutionProviderDispatch, TensorRTExecutionProvider,
-};
+use ort::ep::{CoreML, DirectML, ExecutionProvider, ExecutionProviderDispatch, TensorRT, CUDA};
+use serde::Serialize;
 use tracing::{info, warn};
+
+/// Runtime execution-provider capabilities for the currently loaded ONNX Runtime.
+#[derive(Debug, Clone, Serialize)]
+pub struct EpCapabilities {
+    pub available_devices: Vec<String>,
+    pub available_eps_raw: Vec<String>,
+}
+
+/// Detect available execution providers from ONNX Runtime.
+///
+/// This uses `ExecutionProvider::is_available()` for known providers and builds
+/// a UI-friendly device list (`auto`, `cpu`, `cuda`, `tensorrt`, `directml`, `coreml`).
+pub fn detect_ep_capabilities() -> EpCapabilities {
+    let mut available_devices = vec!["auto".to_string(), "cpu".to_string()];
+    let mut available_eps_raw = vec!["CPUExecutionProvider".to_string()];
+
+    let directml_ok = DirectML::default().is_available().unwrap_or(false);
+    let cuda_ok = CUDA::default().is_available().unwrap_or(false);
+    let trt_ok = TensorRT::default().is_available().unwrap_or(false);
+    let coreml_ok = CoreML::default().is_available().unwrap_or(false);
+
+    if directml_ok {
+        available_devices.push("directml".to_string());
+        available_eps_raw.push("DmlExecutionProvider".to_string());
+    }
+    if cuda_ok {
+        available_devices.push("cuda".to_string());
+        available_eps_raw.push("CUDAExecutionProvider".to_string());
+    }
+    if trt_ok {
+        available_devices.push("tensorrt".to_string());
+        available_eps_raw.push("TensorrtExecutionProvider".to_string());
+    }
+    if coreml_ok {
+        available_devices.push("coreml".to_string());
+        available_eps_raw.push("CoreMLExecutionProvider".to_string());
+    }
+
+    EpCapabilities {
+        available_devices,
+        available_eps_raw,
+    }
+}
 
 /// Build the list of execution providers for the given device string.
 ///
@@ -24,7 +65,7 @@ use tracing::{info, warn};
 /// - `"directml"` / `"dml"` — Microsoft DirectML (Windows).
 /// - `"coreml"` — Apple CoreML (macOS / iOS).
 /// - Any other value is treated as `"cpu"` with a warning.
-pub fn build_execution_providers(device: &str) -> Vec<ExecutionProviderDispatch> {
+pub fn build_execution_providers(device: &str, device_id: i32) -> Vec<ExecutionProviderDispatch> {
     let device_lower = device.to_lowercase();
     let device_str = device_lower.as_str();
 
@@ -39,22 +80,21 @@ pub fn build_execution_providers(device: &str) -> Vec<ExecutionProviderDispatch>
         }
         "cuda" => {
             info!("Device=cuda: registering CUDA execution provider");
-            vec![CUDAExecutionProvider::default().build()]
+            vec![CUDA::default().build()]
         }
         "tensorrt" | "trt" => {
             info!("Device=tensorrt: registering TensorRT + CUDA execution providers");
-            vec![
-                TensorRTExecutionProvider::default().build(),
-                CUDAExecutionProvider::default().build(),
-            ]
+            vec![TensorRT::default().build(), CUDA::default().build()]
         }
         "directml" | "dml" => {
-            info!("Device=directml: registering DirectML execution provider");
-            vec![DirectMLExecutionProvider::default().build()]
+            info!(
+                "Device=directml: registering DirectML execution provider (device_id={device_id})"
+            );
+            vec![DirectML::default().with_device_id(device_id).build()]
         }
         "coreml" => {
             info!("Device=coreml: registering CoreML execution provider");
-            vec![CoreMLExecutionProvider::default().build()]
+            vec![CoreML::default().build()]
         }
         other => {
             warn!(
@@ -89,18 +129,18 @@ fn auto_providers() -> Vec<ExecutionProviderDispatch> {
             any(target_arch = "x86_64", target_arch = "aarch64")
         )
     )) {
-        eps.push(TensorRTExecutionProvider::default().build());
-        eps.push(CUDAExecutionProvider::default().build());
+        eps.push(TensorRT::default().build());
+        eps.push(CUDA::default().build());
     }
 
     // DirectML (Windows only)
     if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
-        eps.push(DirectMLExecutionProvider::default().build());
+        eps.push(DirectML::default().build());
     }
 
     // CoreML (macOS / iOS)
     if cfg!(target_os = "macos") {
-        eps.push(CoreMLExecutionProvider::default().build());
+        eps.push(CoreML::default().build());
     }
 
     eps

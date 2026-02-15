@@ -7,7 +7,7 @@ use std::f32::consts::PI;
 
 /// Apply growl effect to audio.
 ///
-/// strength: 0-100, amount of effect
+/// strength: 0.0-1.0, amount of effect
 /// sample_rate: audio sample rate
 pub fn apply_growl(audio: &[f32], strength: f32, sample_rate: u32) -> Vec<f32> {
     if strength < 0.01 || audio.is_empty() {
@@ -15,7 +15,7 @@ pub fn apply_growl(audio: &[f32], strength: f32, sample_rate: u32) -> Vec<f32> {
     }
 
     let sr = sample_rate as f32;
-    let strength = strength / 100.0;
+    let strength = strength.clamp(0.0, 1.0);
 
     // High-pass filter to separate high frequency content (>400Hz)
     let cutoff = 400.0;

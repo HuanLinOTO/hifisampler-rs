@@ -1057,8 +1057,19 @@
             }).join('');
         }
         /* ── time-series data ── */
-        const TS_MAX = 150; // 150 points × 0.2s = 30s window
-        const tsData = [];  // [{t: Date, active: number}]
+        const TS_WINDOW_MS = 30000;
+        const TS_MAX = 200;
+        const tsData = [];  // [{t: number, active: number}]
+        let chartRaf = 0;
+        let chartRunning = false;
+        let chartCtx = null;
+        let chartSize = { w: 0, h: 0, dpr: 0 };
+
+        function trimTsData(nowMs) {
+            const cutoff = nowMs - TS_WINDOW_MS;
+            while (tsData.length && tsData[0].t < cutoff) tsData.shift();
+            if (tsData.length > TS_MAX) tsData.splice(0, tsData.length - TS_MAX);
+        }
         function upMon(d) {
             $('c-req').textContent = d.total_requests;
             $('c-avg').innerHTML = d.avg_total_ms.toFixed(1) + '<span class="un">ms</span>';
@@ -1067,9 +1078,9 @@
             $('c-rps').innerHTML = d.throughput_rps.toFixed(1) + '<span class="un">rps</span>';
             $('c-err').textContent = d.total_errors;
             /* time-series: record active requests */
-            tsData.push({ t: new Date(), active: d.active_requests || 0 });
-            while (tsData.length > TS_MAX) tsData.shift();
-            drawChart();
+            const nowMs = Date.now();
+            tsData.push({ t: nowMs, active: d.active_requests || 0 });
+            trimTsData(nowMs);
             /* breakdown */
             const bd = $('bkd'), totalMs = d.avg_feature_ms + d.avg_synthesis_ms + d.avg_postprocess_ms;
             if (totalMs <= 0) { bd.innerHTML = `<div style="color:var(--text-dim);font-size:12px">${t('misc.no_data')}</div>`; }
@@ -1080,24 +1091,47 @@
             else { tb.innerHTML = rc.map((r, i) => `<tr><td>${i + 1}</td><td>${r.total_ms.toFixed(1)}</td><td>${r.feature_ms.toFixed(1)}</td><td>${r.synthesis_ms.toFixed(1)}</td><td>${r.postprocess_ms.toFixed(1)}</td><td>${r.output_samples}</td><td>${r.cache_hit ? '✓' : '✗'}</td></tr>`).join(''); }
         }
         /* ── canvas chart ── */
-        function drawChart() {
+        function getChartFrame() {
             const canvas = $('chart');
+            if (!canvas || !canvas.parentElement) return null;
             const rect = canvas.parentElement.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) return null;
             const dpr = window.devicePixelRatio || 1;
-            const W = rect.width, H = rect.height;
-            canvas.width = W * dpr; canvas.height = H * dpr;
-            const ctx = canvas.getContext('2d');
-            ctx.scale(dpr, dpr);
+            const W = Math.max(1, Math.round(rect.width));
+            const H = Math.max(1, Math.round(rect.height));
+            if (!chartCtx || W !== chartSize.w || H !== chartSize.h || dpr !== chartSize.dpr) {
+                canvas.width = Math.floor(W * dpr);
+                canvas.height = Math.floor(H * dpr);
+                chartCtx = canvas.getContext('2d');
+                chartSize = { w: W, h: H, dpr };
+            }
+            if (!chartCtx) return null;
+            chartCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            return { ctx: chartCtx, W, H };
+        }
+        function drawChart(nowMs) {
+            const frame = getChartFrame();
+            if (!frame) return;
+            const { ctx, W, H } = frame;
             const pad = { l: 36, r: 12, t: 12, b: 24 };
             const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
             ctx.clearRect(0, 0, W, H);
-            if (tsData.length < 2) {
+            if (cw <= 0 || ch <= 0) return;
+
+            const now = nowMs ?? Date.now();
+            const cutoff = now - TS_WINDOW_MS;
+            let first = 0;
+            while (first < tsData.length && tsData[first].t < cutoff) first++;
+            const visibleCount = tsData.length - first;
+            if (visibleCount < 2) {
                 ctx.fillStyle = '#9ca0b4'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
                 ctx.fillText(t('misc.waiting_data'), W / 2, H / 2);
                 return;
             }
-            const maxY = Math.max(1, ...tsData.map(p => p.active));
-            const yTicks = Math.min(maxY, 5);
+
+            let maxY = 1;
+            for (let i = first; i < tsData.length; i++) maxY = Math.max(maxY, tsData[i].active);
+            const yTicks = Math.min(Math.ceil(maxY), 5);
             // grid & Y labels
             ctx.strokeStyle = '#2e3144'; ctx.lineWidth = 1;
             ctx.fillStyle = '#9ca0b4'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
@@ -1109,30 +1143,57 @@
             }
             // X labels (~5)
             ctx.textAlign = 'center';
-            const n = tsData.length, xStep = Math.max(1, Math.floor(n / 5));
-            for (let i = 0; i < n; i += xStep) {
-                const x = pad.l + (i / (n - 1)) * cw;
-                const tt = tsData[i].t;
-                const lbl = tt.getHours().toString().padStart(2, '0') + ':' + tt.getMinutes().toString().padStart(2, '0') + ':' + tt.getSeconds().toString().padStart(2, '0');
-                ctx.fillText(lbl, x, H - 4);
+            const xTicks = 4;
+            for (let i = 0; i <= xTicks; i++) {
+                const x = pad.l + (i / xTicks) * cw;
+                const tt = cutoff + (i / xTicks) * TS_WINDOW_MS;
+                ctx.fillText(fmtTs(tt), x, H - 4);
             }
             // area fill
-            ctx.beginPath(); ctx.moveTo(pad.l, pad.t + ch);
-            for (let i = 0; i < n; i++) { ctx.lineTo(pad.l + (i / (n - 1)) * cw, pad.t + ch - (tsData[i].active / maxY) * ch); }
-            ctx.lineTo(pad.l + cw, pad.t + ch); ctx.closePath();
+            const firstPoint = tsData[first];
+            const startX = pad.l + ((firstPoint.t - cutoff) / TS_WINDOW_MS) * cw;
+            ctx.beginPath(); ctx.moveTo(startX, pad.t + ch);
+            for (let i = first; i < tsData.length; i++) {
+                const p = tsData[i];
+                const x = pad.l + ((p.t - cutoff) / TS_WINDOW_MS) * cw;
+                const y = pad.t + ch - (p.active / maxY) * ch;
+                ctx.lineTo(x, y);
+            }
+            const lastPoint = tsData[tsData.length - 1];
+            const endX = pad.l + ((lastPoint.t - cutoff) / TS_WINDOW_MS) * cw;
+            ctx.lineTo(endX, pad.t + ch); ctx.closePath();
             const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + ch);
             grad.addColorStop(0, 'rgba(108,123,240,0.35)'); grad.addColorStop(1, 'rgba(108,123,240,0.02)');
             ctx.fillStyle = grad; ctx.fill();
             // line
             ctx.beginPath();
-            for (let i = 0; i < n; i++) {
-                const x = pad.l + (i / (n - 1)) * cw, y = pad.t + ch - (tsData[i].active / maxY) * ch;
-                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            for (let i = first; i < tsData.length; i++) {
+                const p = tsData[i];
+                const x = pad.l + ((p.t - cutoff) / TS_WINDOW_MS) * cw;
+                const y = pad.t + ch - (p.active / maxY) * ch;
+                i === first ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             }
             ctx.strokeStyle = '#6c7bf0'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
             // latest dot
-            const lx = pad.l + cw, ly = pad.t + ch - (tsData[n - 1].active / maxY) * ch;
+            const lx = pad.l + ((lastPoint.t - cutoff) / TS_WINDOW_MS) * cw;
+            const ly = pad.t + ch - (lastPoint.active / maxY) * ch;
             ctx.beginPath(); ctx.arc(lx, ly, 3, 0, Math.PI * 2); ctx.fillStyle = '#6c7bf0'; ctx.fill();
+        }
+        function chartLoop() {
+            if (!chartRunning) return;
+            drawChart(Date.now());
+            chartRaf = requestAnimationFrame(chartLoop);
+        }
+        function startChartLoop() {
+            if (chartRunning) return;
+            chartRunning = true;
+            chartRaf = requestAnimationFrame(chartLoop);
+        }
+        function stopChartLoop() {
+            if (!chartRunning) return;
+            chartRunning = false;
+            if (chartRaf) cancelAnimationFrame(chartRaf);
+            chartRaf = 0;
         }
         async function resetStats() { try { await fetch(B + '/stats/reset', { method: 'POST' }); poll(); toast(t('toast.stats_cleared')); } catch { toast(t('toast.clear_failed'), false); } }
 
@@ -1319,6 +1380,11 @@
             applyI18n();
         };
         applyI18n();
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) stopChartLoop();
+            else startChartLoop();
+        });
+        startChartLoop();
         poll(); pollDbg();
         loadCaps().then(loadCfg);
         setInterval(poll, 200);

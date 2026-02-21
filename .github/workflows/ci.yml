@@ -245,7 +245,7 @@ jobs:
       - name: Download compiled binaries
         uses: actions/download-artifact@v4
         with:
-          name: binaries-${{ matrix.platform }}
+          name: binaries-${{ matrix.platform }}.zip
           path: binaries
 
       - name: Download shared models artifact

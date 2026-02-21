@@ -12,6 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   # Model archive (7z) from HuggingFace
   MODELS_URL: "https://huggingface.co/SVCFusion/things/resolve/main/hifisampler-models.7z"
+  MODELS_CACHE_KEY: "shared-models-v2"
   # ONNX Runtime version — must be >= 1.23.x for ort 2.0.0-rc.11
   ORT_VERSION: "1.24.1"
 
@@ -120,7 +121,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: models
-          key: shared-models-v1
+          key: ${{ env.MODELS_CACHE_KEY }}
 
       - name: Download models
         if: steps.cache-models.outputs.cache-hit != 'true'

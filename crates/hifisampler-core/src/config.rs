@@ -52,6 +52,10 @@ pub struct VocoderConfig {
 pub struct HnsepConfig {
     #[serde(default = "default_hnsep_model")]
     pub model: PathBuf,
+    #[serde(default = "default_hnsep_model_fp16")]
+    pub model_fp16: PathBuf,
+    #[serde(default = "default_hnsep_use_fp16")]
+    pub use_fp16: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,7 +143,13 @@ fn default_vocoder_use_fp16() -> bool {
     false
 }
 fn default_hnsep_model() -> PathBuf {
-    PathBuf::from("models/hnsep/model.onnx")
+    PathBuf::from("models/hnsep/model_fp32_slim.onnx")
+}
+fn default_hnsep_model_fp16() -> PathBuf {
+    PathBuf::from("models/hnsep/model_fp16.onnx")
+}
+fn default_hnsep_use_fp16() -> bool {
+    false
 }
 fn default_peak_limit() -> f32 {
     1.0
@@ -199,6 +209,8 @@ impl Default for HnsepConfig {
     fn default() -> Self {
         Self {
             model: default_hnsep_model(),
+            model_fp16: default_hnsep_model_fp16(),
+            use_fp16: default_hnsep_use_fp16(),
         }
     }
 }
@@ -242,6 +254,17 @@ impl Config {
             self.vocoder.model_fp16.clone()
         } else {
             self.vocoder.model.clone()
+        }
+    }
+
+    pub fn resolved_hnsep_model_path(&self) -> PathBuf {
+        let device = self.performance.device.trim();
+        if device.eq_ignore_ascii_case("cpu") {
+            self.hnsep.model.clone()
+        } else if self.hnsep.use_fp16 && self.hnsep.model_fp16.exists() {
+            self.hnsep.model_fp16.clone()
+        } else {
+            self.hnsep.model.clone()
         }
     }
 

@@ -18,7 +18,9 @@ vocoder:
   use_fp16: false
 
 hnsep:
-  model: ../hifisampler/hnsep/vr/model.onnx
+  model: ../hifisampler/hnsep/vr/model_fp32_slim.onnx
+  model_fp16: ../hifisampler/hnsep/vr/model_fp16.onnx
+  use_fp16: false
 
 processing:
   wave_norm: false

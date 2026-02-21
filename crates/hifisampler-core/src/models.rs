@@ -35,9 +35,11 @@ impl Models {
         )?));
 
         // Load HN-SEP (optional)
-        let hnsep = if config.hnsep.model.exists() {
+        let hnsep_model = config.resolved_hnsep_model_path();
+        let hnsep = if hnsep_model.exists() {
+            info!("Using HN-SEP model: {}", hnsep_model.display());
             Some(Arc::new(Mutex::new(HnsepModel::load(
-                &config.hnsep.model,
+                &hnsep_model,
                 config.n_fft,
                 config.hop_size,
                 device,
@@ -45,7 +47,10 @@ impl Models {
                 num_threads,
             )?)))
         } else {
-            info!("HN-SEP model not found, harmonic separation disabled");
+            info!(
+                "HN-SEP model not found at '{}', harmonic separation disabled",
+                hnsep_model.display()
+            );
             None
         };
 

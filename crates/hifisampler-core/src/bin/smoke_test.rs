@@ -18,7 +18,8 @@ fn main() -> anyhow::Result<()> {
     );
     let vocoder_model = config.resolved_vocoder_model_path();
     println!("Vocoder model: {:?}", vocoder_model);
-    println!("HN-SEP model: {:?}", config.hnsep.model);
+    let hnsep_model = config.resolved_hnsep_model_path();
+    println!("HN-SEP model: {:?}", hnsep_model);
 
     // Test 1: Load vocoder
     println!("\n[1] Loading vocoder...");
@@ -49,10 +50,10 @@ fn main() -> anyhow::Result<()> {
     println!("    Peak amplitude: {:.6}", peak);
 
     // Test 3: Load HN-SEP
-    if config.hnsep.model.exists() {
+    if hnsep_model.exists() {
         println!("\n[3] Loading HN-SEP model...");
         let mut hnsep = HnsepModel::load(
-            &config.hnsep.model,
+            &hnsep_model,
             config.n_fft,
             config.hop_size,
             &config.performance.device,

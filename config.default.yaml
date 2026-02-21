@@ -21,7 +21,9 @@ vocoder:
 
 # Harmonic-Noise Separation model
 hnsep:
-  model: models/hnsep/model.onnx
+  model: models/hnsep/model_fp32_slim.onnx
+  model_fp16: models/hnsep/model_fp16.onnx
+  use_fp16: false
 
 # Processing settings
 processing:

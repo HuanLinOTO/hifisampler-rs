@@ -42,6 +42,10 @@ pub struct VocoderConfig {
     pub model: PathBuf,
     #[serde(default = "default_vocoder_type")]
     pub model_type: String,
+    #[serde(default = "default_vocoder_model_fp16")]
+    pub model_fp16: PathBuf,
+    #[serde(default = "default_vocoder_use_fp16")]
+    pub use_fp16: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,6 +132,12 @@ fn default_vocoder_model() -> PathBuf {
 fn default_vocoder_type() -> String {
     "onnx".to_string()
 }
+fn default_vocoder_model_fp16() -> PathBuf {
+    PathBuf::from("models/vocoder/model_fp16.onnx")
+}
+fn default_vocoder_use_fp16() -> bool {
+    false
+}
 fn default_hnsep_model() -> PathBuf {
     PathBuf::from("models/hnsep/model.onnx")
 }
@@ -179,6 +189,8 @@ impl Default for VocoderConfig {
         Self {
             model: default_vocoder_model(),
             model_type: default_vocoder_type(),
+            model_fp16: default_vocoder_model_fp16(),
+            use_fp16: default_vocoder_use_fp16(),
         }
     }
 }
@@ -222,6 +234,17 @@ impl Default for ServerConfig {
 }
 
 impl Config {
+    pub fn resolved_vocoder_model_path(&self) -> PathBuf {
+        let device = self.performance.device.trim();
+        if device.eq_ignore_ascii_case("cpu") {
+            self.vocoder.model.clone()
+        } else if self.vocoder.use_fp16 {
+            self.vocoder.model_fp16.clone()
+        } else {
+            self.vocoder.model.clone()
+        }
+    }
+
     /// Load config from a YAML file, falling back to defaults for missing fields.
     pub fn load(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path.as_ref())?;

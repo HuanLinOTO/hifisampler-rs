@@ -47,6 +47,7 @@ Binaries will be in `target/release/`:
 
 1. Place ONNX models in the `models/` directory:
    - `models/vocoder/model.onnx` - HiFi-GAN vocoder
+   - `models/vocoder/model_fp16.onnx` - HiFi-GAN vocoder (FP16/quantized, optional)
    - `models/hnsep/model.onnx` - HN-SEP model (optional)
 
 2. Copy `config.default.yaml` to `config.yaml` and adjust settings.

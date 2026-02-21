@@ -16,13 +16,14 @@ fn main() -> anyhow::Result<()> {
         "Config loaded: sr={}, hop={}, mels={}",
         config.sample_rate, config.hop_size, config.num_mels
     );
-    println!("Vocoder model: {:?}", config.vocoder.model);
+    let vocoder_model = config.resolved_vocoder_model_path();
+    println!("Vocoder model: {:?}", vocoder_model);
     println!("HN-SEP model: {:?}", config.hnsep.model);
 
     // Test 1: Load vocoder
     println!("\n[1] Loading vocoder...");
     let mut vocoder = Vocoder::load(
-        &config.vocoder.model,
+        &vocoder_model,
         &config.performance.device,
         config.performance.device_id,
         config.performance.num_threads,

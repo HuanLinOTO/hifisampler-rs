@@ -14,6 +14,8 @@ pad_frames: 6
 vocoder:
   model: ../hifisampler/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/model.onnx
   model_type: onnx
+  model_fp16: ../hifisampler/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02_fp16.onnx
+  use_fp16: false
 
 hnsep:
   model: ../hifisampler/hnsep/vr/model.onnx

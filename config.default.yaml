@@ -16,6 +16,8 @@ pad_frames: 6
 vocoder:
   model: models/vocoder/model.onnx
   model_type: onnx
+  model_fp16: models/vocoder/model_fp16.onnx
+  use_fp16: false
 
 # Harmonic-Noise Separation model
 hnsep:

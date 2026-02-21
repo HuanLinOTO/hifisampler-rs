@@ -151,6 +151,12 @@ jobs:
           else
             echo "::warning::Vocoder model.onnx not found in archive"
           fi
+          if [ -f "models_extract/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02_fp16.onnx" ]; then
+            cp "models_extract/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02_fp16.onnx" models/vocoder/model_fp16.onnx
+            echo "✓ Vocoder FP16 model copied"
+          else
+            echo "::warning::Vocoder FP16 model not found in archive"
+          fi
           if [ -f "models_extract/vr/model.onnx" ]; then
             cp "models_extract/vr/model.onnx" models/hnsep/model.onnx
             echo "✓ HN-SEP model copied"

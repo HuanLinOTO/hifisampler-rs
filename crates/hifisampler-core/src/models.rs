@@ -26,8 +26,9 @@ impl Models {
         let num_threads = config.performance.num_threads;
 
         // Load vocoder
+        let vocoder_model = config.resolved_vocoder_model_path();
         let vocoder = Arc::new(Mutex::new(Vocoder::load(
-            &config.vocoder.model,
+            &vocoder_model,
             device,
             device_id,
             num_threads,

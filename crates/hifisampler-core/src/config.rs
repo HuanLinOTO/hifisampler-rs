@@ -153,6 +153,17 @@ fn default_hnsep_model_fp16() -> PathBuf {
 fn default_hnsep_use_fp16() -> bool {
     false
 }
+fn has_cuda_provider_dll_near_exe() -> bool {
+    if !cfg!(windows) {
+        return false;
+    }
+    let Ok(exe_path) = std::env::current_exe() else {
+        return false;
+    };
+    let dir = exe_path.parent().unwrap_or_else(|| Path::new("."));
+    dir.join("onnxruntime_providers_cuda.dll").exists()
+        || dir.join("onnxruntime_providers_tensorrt.dll").exists()
+}
 fn should_default_fp16_for_device(device: &str) -> bool {
     let device_lower = device.trim().to_ascii_lowercase();
     if device_lower == "directml" || device_lower == "dml" {
@@ -166,11 +177,17 @@ fn should_default_fp16_for_device(device: &str) -> bool {
         .available_devices
         .iter()
         .any(|d| d == "directml" || d == "dml");
+    if !has_dml {
+        return false;
+    }
+    if has_cuda_provider_dll_near_exe() {
+        return false;
+    }
     let has_cuda = caps
         .available_devices
         .iter()
         .any(|d| d == "cuda" || d == "tensorrt");
-    has_dml && !has_cuda
+    !has_cuda
 }
 fn default_peak_limit() -> f32 {
     1.0

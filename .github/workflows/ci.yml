@@ -105,7 +105,7 @@ jobs:
       - name: Upload compiled binaries
         uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.platform }}
+          name: binaries-${{ matrix.platform }}.zip
           path: upload_bin/
 
   # ────────────────────────── Package (per-EP variant) ──────────────────────────
@@ -175,7 +175,7 @@ jobs:
       - name: Upload shared models artifact
         uses: actions/upload-artifact@v4
         with:
-          name: shared-models
+          name: shared-models.zip
           path: models/
           if-no-files-found: warn
 
@@ -413,7 +413,7 @@ jobs:
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}-installer
+          name: ${{ matrix.artifact }}-installer.zip
           path: installer/output/*.exe
 
   # ────────────────────────── Release ──────────────────────────

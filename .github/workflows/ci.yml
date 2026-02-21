@@ -251,7 +251,7 @@ jobs:
       - name: Download shared models artifact
         uses: actions/download-artifact@v4
         with:
-          name: shared-models
+          name: shared-models.zip
           path: models
 
       - name: Filter HN-SEP models by variant

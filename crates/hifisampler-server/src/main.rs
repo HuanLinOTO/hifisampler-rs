@@ -40,7 +40,6 @@ use tracing::{error, info};
 use crate::stats::StatsCollector;
 
 const BRIDGE_SERVER_PATH_FILE: &str = "hifisampler-server.path";
-const DEFAULT_OPENUTAU_RESAMPLERS_DIR: &str = "OpenUtau\\Resamplers";
 
 #[derive(Parser, Debug)]
 #[command(name = "hifisampler-server", about = "HiFiSampler inference server")]
@@ -572,19 +571,6 @@ fn enumerate_dml_adapters() -> Vec<DmlAdapterInfo> {
     Vec::new()
 }
 
-fn is_allowed_bridge_install_dir(target_dir: &Path) -> bool {
-    let Ok(canonical) = target_dir.canonicalize() else {
-        return false;
-    };
-
-    let normalized = canonical
-        .to_string_lossy()
-        .replace('/', "\\")
-        .to_ascii_lowercase();
-    normalized.ends_with("\\resamplers")
-        && normalized.contains(&DEFAULT_OPENUTAU_RESAMPLERS_DIR.to_ascii_lowercase())
-}
-
 fn write_path_file_atomic(path_file: &Path, server_exe: &Path) -> std::io::Result<()> {
     let tmp_name = format!("{}.tmp-{}", BRIDGE_SERVER_PATH_FILE, std::process::id());
     let tmp_path: PathBuf = path_file
@@ -654,18 +640,6 @@ async fn install_bridge_handler(
         return (
             StatusCode::BAD_REQUEST,
             axum::Json(serde_json::json!({"error": format!("目录不存在: {}", req.path)})),
-        );
-    }
-
-    if !is_allowed_bridge_install_dir(target_dir) {
-        return (
-            StatusCode::BAD_REQUEST,
-            axum::Json(serde_json::json!({
-                "error": format!(
-                    "仅允许安装到 OpenUTAU Resamplers 目录（例如包含 {}）",
-                    DEFAULT_OPENUTAU_RESAMPLERS_DIR
-                )
-            })),
         );
     }
 

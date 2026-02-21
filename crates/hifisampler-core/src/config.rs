@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+use crate::ep::detect_ep_capabilities;
+
 /// Main configuration for HiFiSampler.
 /// Mirrors the Python config.py dataclass structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,12 +44,20 @@ pub struct VocoderConfig {
     pub model: PathBuf,
     #[serde(default = "default_vocoder_type")]
     pub model_type: String,
+    #[serde(default = "default_vocoder_model_fp16")]
+    pub model_fp16: PathBuf,
+    #[serde(default = "default_vocoder_use_fp16")]
+    pub use_fp16: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HnsepConfig {
     #[serde(default = "default_hnsep_model")]
     pub model: PathBuf,
+    #[serde(default = "default_hnsep_model_fp16")]
+    pub model_fp16: PathBuf,
+    #[serde(default = "default_hnsep_use_fp16")]
+    pub use_fp16: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,8 +138,56 @@ fn default_vocoder_model() -> PathBuf {
 fn default_vocoder_type() -> String {
     "onnx".to_string()
 }
+fn default_vocoder_model_fp16() -> PathBuf {
+    PathBuf::from("models/vocoder/model_fp16.onnx")
+}
+fn default_vocoder_use_fp16() -> bool {
+    false
+}
 fn default_hnsep_model() -> PathBuf {
-    PathBuf::from("models/hnsep/model.onnx")
+    PathBuf::from("models/hnsep/model_fp32_slim.onnx")
+}
+fn default_hnsep_model_fp16() -> PathBuf {
+    PathBuf::from("models/hnsep/model_fp16.onnx")
+}
+fn default_hnsep_use_fp16() -> bool {
+    false
+}
+fn has_cuda_provider_dll_near_exe() -> bool {
+    if !cfg!(windows) {
+        return false;
+    }
+    let Ok(exe_path) = std::env::current_exe() else {
+        return false;
+    };
+    let dir = exe_path.parent().unwrap_or_else(|| Path::new("."));
+    dir.join("onnxruntime_providers_cuda.dll").exists()
+        || dir.join("onnxruntime_providers_tensorrt.dll").exists()
+}
+fn should_default_fp16_for_device(device: &str) -> bool {
+    let device_lower = device.trim().to_ascii_lowercase();
+    if device_lower == "directml" || device_lower == "dml" {
+        return true;
+    }
+    if device_lower != "auto" {
+        return false;
+    }
+    let caps = detect_ep_capabilities();
+    let has_dml = caps
+        .available_devices
+        .iter()
+        .any(|d| d == "directml" || d == "dml");
+    if !has_dml {
+        return false;
+    }
+    if has_cuda_provider_dll_near_exe() {
+        return false;
+    }
+    let has_cuda = caps
+        .available_devices
+        .iter()
+        .any(|d| d == "cuda" || d == "tensorrt");
+    !has_cuda
 }
 fn default_peak_limit() -> f32 {
     1.0
@@ -179,6 +237,8 @@ impl Default for VocoderConfig {
         Self {
             model: default_vocoder_model(),
             model_type: default_vocoder_type(),
+            model_fp16: default_vocoder_model_fp16(),
+            use_fp16: default_vocoder_use_fp16(),
         }
     }
 }
@@ -187,6 +247,8 @@ impl Default for HnsepConfig {
     fn default() -> Self {
         Self {
             model: default_hnsep_model(),
+            model_fp16: default_hnsep_model_fp16(),
+            use_fp16: default_hnsep_use_fp16(),
         }
     }
 }
@@ -222,6 +284,32 @@ impl Default for ServerConfig {
 }
 
 impl Config {
+    pub fn resolved_vocoder_model_path(&self) -> PathBuf {
+        let device = self.performance.device.trim();
+        if device.eq_ignore_ascii_case("cpu") {
+            self.vocoder.model.clone()
+        } else if self.vocoder.use_fp16 {
+            self.vocoder.model_fp16.clone()
+        } else if should_default_fp16_for_device(device) && self.vocoder.model_fp16.exists() {
+            self.vocoder.model_fp16.clone()
+        } else {
+            self.vocoder.model.clone()
+        }
+    }
+
+    pub fn resolved_hnsep_model_path(&self) -> PathBuf {
+        let device = self.performance.device.trim();
+        if device.eq_ignore_ascii_case("cpu") {
+            self.hnsep.model.clone()
+        } else if self.hnsep.use_fp16 && self.hnsep.model_fp16.exists() {
+            self.hnsep.model_fp16.clone()
+        } else if should_default_fp16_for_device(device) && self.hnsep.model_fp16.exists() {
+            self.hnsep.model_fp16.clone()
+        } else {
+            self.hnsep.model.clone()
+        }
+    }
+
     /// Load config from a YAML file, falling back to defaults for missing fields.
     pub fn load(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path.as_ref())?;

@@ -354,6 +354,36 @@
             letter-spacing: 1px;
         }
 
+        .cfg-models {
+            grid-column: 1 / -1;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 12px;
+            margin: 4px 0 10px;
+        }
+
+        .cfg-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px;
+            min-width: 0;
+        }
+
+        .cfg-card-h {
+            font-size: 12px;
+            color: var(--accent);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .cfg-card-b {
+            display: grid;
+            gap: 8px;
+        }
+
         /* ── Buttons ── */
         .btn {
             padding: 7px 14px;
@@ -557,6 +587,10 @@
             .cfg-grid {
                 grid-template-columns: 1fr
             }
+
+            .cfg-models {
+                grid-template-columns: 1fr
+            }
         }
     </style>
 </head>
@@ -636,7 +670,10 @@
                 </div>
             </div>
             <div class="sec">
-                <h2><span data-i18n="mon.recent">📋 最近请求</span> <div style="flex:1"></div> <button class="btn" onclick="resetStats()" data-i18n="mon.clear_stats">清空统计</button></h2>
+                <h2><span data-i18n="mon.recent">📋 最近请求</span>
+                    <div style="flex:1"></div> <button class="btn" onclick="resetStats()"
+                        data-i18n="mon.clear_stats">清空统计</button>
+                </h2>
                 <div class="tw">
                     <table class="rt">
                         <thead>
@@ -656,8 +693,12 @@
             </div>
 
             <div class="sec">
-                <h2><span data-i18n="dbg.title">🐛 Bridge 调用参数</span> <div style="flex:1"></div> <button class="btn" onclick="resetDbg()" data-i18n="common.clear">清空</button></h2>
-                <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;" data-i18n="dbg.desc">显示最近 50 次 bridge 调用传入的原始 CLI 参数（即 POST / 的 body），用于排查 flags 是否真的传到服务端。</p>
+                <h2><span data-i18n="dbg.title">🐛 Bridge 调用参数</span>
+                    <div style="flex:1"></div> <button class="btn" onclick="resetDbg()"
+                        data-i18n="common.clear">清空</button>
+                </h2>
+                <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;" data-i18n="dbg.desc">显示最近 50 次
+                    bridge 调用传入的原始 CLI 参数（即 POST / 的 body），用于排查 flags 是否真的传到服务端。</p>
                 <div class="tw">
                     <table class="rt">
                         <thead>
@@ -675,7 +716,8 @@
 
             <div class="sec">
                 <h2 data-i18n="flags.title">🏷 常用 Flags 速查</h2>
-                <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;" data-i18n="flags.desc">用于快速确认 OpenUTAU/UTAU 传参是否生效。可在上方「Bridge 调用参数」里直接检查实际 flags 字符串。</p>
+                <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;" data-i18n="flags.desc">用于快速确认
+                    OpenUTAU/UTAU 传参是否生效。可在上方「Bridge 调用参数」里直接检查实际 flags 字符串。</p>
                 <div class="tw">
                     <table class="rt">
                         <thead>
@@ -686,14 +728,47 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <tr><td><code>He</code></td><td data-i18n="flags.he.meaning">切换延长策略（与 config 的 <code>processing.loop_mode</code> 互斥反转）</td><td data-i18n="flags.he.range">无数值，例如 <code>He</code></td></tr>
-                            <tr><td><code>HG</code></td><td data-i18n="flags.hg.meaning">Growl</td><td data-i18n="flags.hg.range"><code>0-100</code>，例如 <code>HG50</code></td></tr>
-                            <tr><td><code>Ht</code></td><td data-i18n="flags.ht.meaning">Tension（频谱倾斜）</td><td data-i18n="flags.ht.range"><code>-100..100</code>，例如 <code>Ht20</code></td></tr>
-                            <tr><td><code>Hb</code></td><td data-i18n="flags.hb.meaning">Breathiness（噪声比例）</td><td data-i18n="flags.hb.range"><code>0..500</code>，例如 <code>Hb80</code></td></tr>
-                            <tr><td><code>Hv</code></td><td data-i18n="flags.hv.meaning">Voicing（谐波比例）</td><td data-i18n="flags.hv.range"><code>0..150</code>，例如 <code>Hv120</code></td></tr>
-                            <tr><td><code>g</code></td><td data-i18n="flags.g.meaning">Gender / Formant 偏移</td><td data-i18n="flags.g.range">整数，例如 <code>g-10</code></td></tr>
-                            <tr><td><code>A</code></td><td data-i18n="flags.a.meaning">按音高变化速率调制振幅</td><td data-i18n="flags.a.range"><code>-100..100</code>，例如 <code>A5</code></td></tr>
-                            <tr><td><code>P</code></td><td data-i18n="flags.p.meaning">响度归一化强度</td><td data-i18n="flags.p.range"><code>0..100</code>，例如 <code>P80</code></td></tr>
+                            <tr>
+                                <td><code>He</code></td>
+                                <td data-i18n="flags.he.meaning">切换延长策略（与 config 的 <code>processing.loop_mode</code>
+                                    互斥反转）</td>
+                                <td data-i18n="flags.he.range">无数值，例如 <code>He</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>HG</code></td>
+                                <td data-i18n="flags.hg.meaning">Growl</td>
+                                <td data-i18n="flags.hg.range"><code>0-100</code>，例如 <code>HG50</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>Ht</code></td>
+                                <td data-i18n="flags.ht.meaning">Tension（频谱倾斜）</td>
+                                <td data-i18n="flags.ht.range"><code>-100..100</code>，例如 <code>Ht20</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>Hb</code></td>
+                                <td data-i18n="flags.hb.meaning">Breathiness（噪声比例）</td>
+                                <td data-i18n="flags.hb.range"><code>0..500</code>，例如 <code>Hb80</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>Hv</code></td>
+                                <td data-i18n="flags.hv.meaning">Voicing（谐波比例）</td>
+                                <td data-i18n="flags.hv.range"><code>0..150</code>，例如 <code>Hv120</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>g</code></td>
+                                <td data-i18n="flags.g.meaning">Gender / Formant 偏移</td>
+                                <td data-i18n="flags.g.range">整数，例如 <code>g-10</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>A</code></td>
+                                <td data-i18n="flags.a.meaning">按音高变化速率调制振幅</td>
+                                <td data-i18n="flags.a.range"><code>-100..100</code>，例如 <code>A5</code></td>
+                            </tr>
+                            <tr>
+                                <td><code>P</code></td>
+                                <td data-i18n="flags.p.meaning">响度归一化强度</td>
+                                <td data-i18n="flags.p.range"><code>0..100</code>，例如 <code>P80</code></td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -707,7 +782,8 @@
                     <button class="btn btn-p" onclick="saveCfg()" data-i18n="cfg.save">💾 保存配置</button>
                     <button class="btn" onclick="loadCfg()" data-i18n="cfg.reset">🔄 重置</button>
                 </h2>
-                <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;" data-i18n="cfg.desc">修改配置后点击「保存配置」将写入
+                <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px;" data-i18n="cfg.desc">
+                    修改配置后点击「保存配置」将写入
                     config.yaml。部分设置需要重启服务才能生效。</p>
                 <div class="cfg-grid" id="cfgGrid"></div>
             </div>
@@ -716,7 +792,8 @@
         <div class="page" id="p-set">
             <div class="sec wiz">
                 <h2 data-i18n="setup.title">🔧 OpenUTAU 安装向导</h2>
-                <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;" data-i18n="setup.desc">将 HiFiSampler 桥接程序安装到 OpenUTAU，只需 3
+                <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px;" data-i18n="setup.desc">将 HiFiSampler
+                    桥接程序安装到 OpenUTAU，只需 3
                     步。</p>
                 <div class="step">
                     <div class="step-h">
@@ -727,7 +804,8 @@
                         <p data-i18n="setup.step1.p1">打开 OpenUTAU 安装目录，找到 <code>Resamplers</code> 文件夹。</p>
                         <p data-i18n="setup.step1.p2">通常位于：<code>C:\Users\你的用户名\OpenUtau\Resamplers</code></p>
                         <p data-i18n="setup.step1.p3">或 OpenUTAU 程序所在目录下的 <code>Resamplers</code> 文件夹。</p>
-                        <input class="path-in" id="ouPath" data-i18n-ph="setup.step1.placeholder" placeholder="输入或粘贴 Resamplers 文件夹的完整路径">
+                        <input class="path-in" id="ouPath" data-i18n-ph="setup.step1.placeholder"
+                            placeholder="输入或粘贴 Resamplers 文件夹的完整路径">
                     </div>
                 </div>
                 <div class="step">
@@ -737,7 +815,8 @@
                     </div>
                     <div class="step-b">
                         <p data-i18n="setup.step2.p1">点击下方按钮，将 <code>hifisampler.exe</code> 复制到 Resamplers 目录。</p>
-                        <button class="btn btn-ok" onclick="installBridge()" data-i18n="setup.step2.install">📦 安装桥接程序</button>
+                        <button class="btn btn-ok" onclick="installBridge()" data-i18n="setup.step2.install">📦
+                            安装桥接程序</button>
                         <div id="instSt"></div>
                     </div>
                 </div>
@@ -786,8 +865,8 @@
                 'setup.step3.title': '配置 OpenUTAU', 'setup.step3.li1': '<strong>重启 OpenUTAU</strong>', 'setup.step3.li2': '切换到 <strong>Classic 模式</strong>', 'setup.step3.li3': '点击右上角 <strong>🔧 扳手按钮</strong>', 'setup.step3.li4': '在 Resampler 下拉列表中选择 <code>hifisampler.exe</code>', 'setup.step3.li5': '完成！享受 HiFi 音质的 UTAU 合成 🎉',
                 'misc.no_records': '暂无记录', 'misc.no_data': '暂无数据', 'misc.no_requests': '暂无请求', 'misc.waiting_data': '等待数据…', 'misc.shutting_down': '退出中...',
                 'toast.stats_cleared': '统计已清空', 'toast.debug_cleared': '调试记录已清空', 'toast.clear_failed': '清空失败', 'toast.load_cfg_failed': '加载配置失败', 'toast.device_fallback': '当前设备在此发行版不可用，已自动回退为 auto', 'toast.cfg_saved': '配置已保存！部分设置重启后生效', 'toast.save_failed': '保存失败: ', 'toast.enter_path': '请先输入 Resamplers 目录路径', 'toast.install_ok': '桥接程序安装成功！', 'toast.install_failed': '安装失败', 'toast.connect_failed': '连接服务器失败', 'toast.installing': '正在安装…',
-                'cfg.group.audio': '音频', 'cfg.group.model': '模型', 'cfg.group.processing': '处理', 'cfg.group.performance': '性能', 'cfg.group.server': '服务器', 'cfg.group.other': '其他',
-                'cfg.sample_rate': '采样率', 'cfg.n_fft': 'FFT 大小', 'cfg.win_size': '窗口大小', 'cfg.hop_size': 'Hop 大小', 'cfg.hop_size_interp': '插值 Hop', 'cfg.num_mels': 'Mel 通道数', 'cfg.fmin': '最低频率', 'cfg.fmax': '最高频率', 'cfg.pad_frames': '填充帧数', 'cfg.vocoder_model': 'Vocoder 模型路径', 'cfg.vocoder_model_type': '模型类型', 'cfg.hnsep_model': 'HN-SEP 模型路径', 'cfg.wave_norm': '波形归一化', 'cfg.wave_norm_clip': '裁剪静音', 'cfg.loop_mode': '循环模式(He可反转)', 'cfg.peak_limit': '峰值限制', 'cfg.num_threads': '推理线程数', 'cfg.device': '设备', 'cfg.device_id': 'DirectML 设备', 'cfg.host': '服务地址', 'cfg.port': '服务端口', 'cfg.device_unavailable': '当前值不可用'
+                'cfg.group.audio': '音频', 'cfg.group.model': '模型', 'cfg.group.vocoder': 'Vocoder', 'cfg.group.hnsep': 'HN-SEP', 'cfg.group.processing': '处理', 'cfg.group.performance': '性能', 'cfg.group.server': '服务器', 'cfg.group.other': '其他',
+                'cfg.sample_rate': '采样率', 'cfg.n_fft': 'FFT 大小', 'cfg.win_size': '窗口大小', 'cfg.hop_size': 'Hop 大小', 'cfg.hop_size_interp': '插值 Hop', 'cfg.num_mels': 'Mel 通道数', 'cfg.fmin': '最低频率', 'cfg.fmax': '最高频率', 'cfg.pad_frames': '填充帧数', 'cfg.vocoder_model': 'Vocoder 模型路径', 'cfg.vocoder_model_type': '模型类型', 'cfg.vocoder_model_fp16': '量化模型路径 (FP16)', 'cfg.vocoder_use_fp16': '使用量化声码器 (FP16)', 'cfg.hnsep_model': 'HN-SEP 模型路径 (FP32 Slim)', 'cfg.hnsep_model_fp16': 'HN-SEP 模型路径 (FP16)', 'cfg.hnsep_use_fp16': '使用 HN-SEP FP16 模型', 'cfg.hnsep_fp16_cpu_ignored': '当前设备为 CPU，此项无效', 'cfg.wave_norm': '波形归一化', 'cfg.wave_norm_clip': '裁剪静音', 'cfg.loop_mode': '循环模式(He可反转)', 'cfg.peak_limit': '峰值限制', 'cfg.num_threads': '推理线程数', 'cfg.device': '设备', 'cfg.device_id': 'DirectML 设备', 'cfg.host': '服务地址', 'cfg.port': '服务端口', 'cfg.device_unavailable': '当前值不可用'
             },
             en: {
                 'status.connecting': 'Connecting...', 'status.online': 'Online', 'status.offline': 'Offline',
@@ -806,14 +885,122 @@
                 'setup.step3.title': 'Configure OpenUTAU', 'setup.step3.li1': '<strong>Restart OpenUTAU</strong>', 'setup.step3.li2': 'Switch to <strong>Classic mode</strong>', 'setup.step3.li3': 'Click the top-right <strong>🔧 wrench</strong>', 'setup.step3.li4': 'Select <code>hifisampler.exe</code> in Resampler dropdown', 'setup.step3.li5': 'Done! Enjoy HiFi UTAU synthesis 🎉',
                 'misc.no_records': 'No records', 'misc.no_data': 'No data', 'misc.no_requests': 'No requests', 'misc.waiting_data': 'Waiting for data...', 'misc.shutting_down': 'Shutting down...',
                 'toast.stats_cleared': 'Stats cleared', 'toast.debug_cleared': 'Debug records cleared', 'toast.clear_failed': 'Clear failed', 'toast.load_cfg_failed': 'Failed to load config', 'toast.device_fallback': 'Selected device is unavailable, fallback to auto', 'toast.cfg_saved': 'Config saved. Some changes require restart', 'toast.save_failed': 'Save failed: ', 'toast.enter_path': 'Please enter Resamplers path first', 'toast.install_ok': 'Bridge installed successfully', 'toast.install_failed': 'Install failed', 'toast.connect_failed': 'Server connection failed', 'toast.installing': 'Installing...',
-                'cfg.group.audio': 'Audio', 'cfg.group.model': 'Model', 'cfg.group.processing': 'Processing', 'cfg.group.performance': 'Performance', 'cfg.group.server': 'Server', 'cfg.group.other': 'Other',
-                'cfg.sample_rate': 'Sample Rate', 'cfg.n_fft': 'FFT Size', 'cfg.win_size': 'Window Size', 'cfg.hop_size': 'Hop Size', 'cfg.hop_size_interp': 'Interp Hop', 'cfg.num_mels': 'Mel Bins', 'cfg.fmin': 'Min Freq', 'cfg.fmax': 'Max Freq', 'cfg.pad_frames': 'Pad Frames', 'cfg.vocoder_model': 'Vocoder Model Path', 'cfg.vocoder_model_type': 'Model Type', 'cfg.hnsep_model': 'HN-SEP Model Path', 'cfg.wave_norm': 'Wave Norm', 'cfg.wave_norm_clip': 'Clip Silence', 'cfg.loop_mode': 'Loop Mode (He invert)', 'cfg.peak_limit': 'Peak Limit', 'cfg.num_threads': 'Inference Threads', 'cfg.device': 'Device', 'cfg.device_id': 'DirectML Device', 'cfg.host': 'Host', 'cfg.port': 'Port', 'cfg.device_unavailable': 'Current value unavailable'
+                'cfg.group.audio': 'Audio', 'cfg.group.model': 'Model', 'cfg.group.vocoder': 'Vocoder', 'cfg.group.hnsep': 'HN-SEP', 'cfg.group.processing': 'Processing', 'cfg.group.performance': 'Performance', 'cfg.group.server': 'Server', 'cfg.group.other': 'Other',
+                'cfg.sample_rate': 'Sample Rate', 'cfg.n_fft': 'FFT Size', 'cfg.win_size': 'Window Size', 'cfg.hop_size': 'Hop Size', 'cfg.hop_size_interp': 'Interp Hop', 'cfg.num_mels': 'Mel Bins', 'cfg.fmin': 'Min Freq', 'cfg.fmax': 'Max Freq', 'cfg.pad_frames': 'Pad Frames', 'cfg.vocoder_model': 'Vocoder Model Path', 'cfg.vocoder_model_type': 'Model Type', 'cfg.vocoder_model_fp16': 'FP16 Vocoder Model Path', 'cfg.vocoder_use_fp16': 'Use quantized vocoder (FP16)', 'cfg.hnsep_model': 'HN-SEP Model Path (FP32 Slim)', 'cfg.hnsep_model_fp16': 'HN-SEP Model Path (FP16)', 'cfg.hnsep_use_fp16': 'Use HN-SEP FP16 model', 'cfg.hnsep_fp16_cpu_ignored': 'Current device is CPU, this option is ignored', 'cfg.wave_norm': 'Wave Norm', 'cfg.wave_norm_clip': 'Clip Silence', 'cfg.loop_mode': 'Loop Mode (He invert)', 'cfg.peak_limit': 'Peak Limit', 'cfg.num_threads': 'Inference Threads', 'cfg.device': 'Device', 'cfg.device_id': 'DirectML Device', 'cfg.host': 'Host', 'cfg.port': 'Port', 'cfg.device_unavailable': 'Current value unavailable'
             }
         };
-        I18N.ja = { ...I18N.en, 'common.exit': '終了', 'common.clear': 'クリア', 'status.online': 'オンライン', 'status.offline': 'オフライン', 'status.connecting': '接続中...' };
-        I18N.fr = { ...I18N.en, 'common.exit': 'Quitter', 'common.clear': 'Effacer', 'status.online': 'En ligne', 'status.offline': 'Hors ligne', 'status.connecting': 'Connexion...' };
-        I18N.de = { ...I18N.en, 'common.exit': 'Beenden', 'common.clear': 'Leeren', 'status.online': 'Online', 'status.offline': 'Offline', 'status.connecting': 'Verbinden...' };
-        I18N.ru = { ...I18N.en, 'common.exit': 'Выход', 'common.clear': 'Очистить', 'status.online': 'Онлайн', 'status.offline': 'Оффлайн', 'status.connecting': 'Подключение...' };
+        // Japanese translations (complete)
+        I18N.ja = {
+            'status.connecting': '接続中...', 'status.online': 'オンライン', 'status.offline': 'オフライン',
+            'common.exit': '終了', 'common.clear': 'クリア', 'common.on': 'オン', 'common.off': 'オフ',
+            'nav.monitor': '📊 モニター', 'nav.config': '⚙ 設定', 'nav.setup': '🔧 セットアップ',
+            'card.total_requests': '合計リクエスト', 'card.avg_latency': '平均レイテンシ', 'card.p95_latency': 'P95 レイテンシ', 'card.cache_hit': 'キャッシュヒット率', 'card.throughput': 'スループット', 'card.errors': 'エラー',
+            'mon.activity': '📈 リクエスト活動', 'mon.breakdown': '📊 時間内訳 (平均)', 'mon.feature': '特徴抽出', 'mon.synthesis': '合成', 'mon.postprocess': '後処理', 'mon.recent': '📋 最近のリクエスト', 'mon.clear_stats': '統計をクリア',
+            'table.total_ms': '合計(ms)', 'table.feature': '特徴', 'table.synthesis': '合成', 'table.postprocess': '後処理', 'table.samples': 'サンプル数', 'table.cache': 'キャッシュ', 'table.time': '時間', 'table.source': 'ソース', 'table.args': '引数',
+            'dbg.title': '🐛 ブリッジ CLI 引数', 'dbg.desc': '最新50件のブリッジCLIペイロード（POST / ボディ）を表示し、フラグがサーバーに渡されているか確認します。',
+            'flags.title': '🏷 フラグクイックリファレンス', 'flags.desc': 'OpenUTAU/UTAUフラグを検証するためのものです。上の「Bridge CLI Args」で実際のフラグ文字列も確認できます。',
+            'flags.he.meaning': '延長戦略の切り替え（config の <code>processing.loop_mode</code> と XOR）', 'flags.he.range': '値なし、例: <code>He</code>',
+            'flags.hg.meaning': 'グロウル', 'flags.hg.range': '<code>0-100</code> 例: <code>HG50</code>',
+            'flags.ht.meaning': 'テンション（スペクトル傾斜）', 'flags.ht.range': '<code>-100..100</code> 例: <code>Ht20</code>',
+            'flags.hb.meaning': 'ブレス感（ノイズ比）', 'flags.hb.range': '<code>0..500</code> 例: <code>Hb80</code>',
+            'flags.hv.meaning': 'ボイシング（ハーモニック比）', 'flags.hv.range': '<code>0..150</code> 例: <code>Hv120</code>',
+            'flags.g.meaning': 'ジェンダー/フォルマントシフト', 'flags.g.range': '整数例: <code>g-10</code>',
+            'flags.a.meaning': '音程変化率による振幅変調', 'flags.a.range': '<code>-100..100</code> 例: <code>A5</code>',
+            'flags.p.meaning': 'ラウドネス正規化強度', 'flags.p.range': '<code>0..100</code> 例: <code>P80</code>',
+            'cfg.title': '⚙ 実行時設定', 'cfg.save': '💾 保存', 'cfg.reset': '🔄 リセット', 'cfg.desc': '保存をクリックして config.yaml に書き込みます。一部の設定は再起動が必要です。',
+            'setup.title': '🔧 OpenUTAU セットアップウィザード', 'setup.desc': 'HiFiSamplerブリッジを3ステップでOpenUTAUにインストールします。',
+            'setup.step1.title': 'OpenUTAU Resamplers フォルダを選択', 'setup.step1.p1': 'OpenUTAUインストールディレクトリを開き、<code>Resamplers</code>フォルダを探します。', 'setup.step1.p2': '通常: <code>C:\\Users\\あなたの名前\\OpenUtau\\Resamplers</code>', 'setup.step1.p3': 'またはOpenUTAUプログラムフォルダ内。', 'setup.step1.placeholder': 'Resamplersフォルダのフルパスを入力または貼り付け',
+            'setup.step2.title': 'ブリッジをインストール', 'setup.step2.p1': '以下をクリックして <code>hifisampler.exe</code> を Resamplers にコピーします。', 'setup.step2.install': '📦 ブリッジをインストール',
+            'setup.step3.title': 'OpenUTAUを設定', 'setup.step3.li1': '<strong>OpenUTAUを再起動</strong>', 'setup.step3.li2': '<strong>Classicモード</strong>に切り替え', 'setup.step3.li3': '右上の<strong>🔧 スパナ</strong>をクリック', 'setup.step3.li4': 'Resamplerドロップダウンから <code>hifisampler.exe</code> を選択', 'setup.step3.li5': '完了！HiFi UTAU合成をお楽しみください 🎉',
+            'misc.no_records': '記録なし', 'misc.no_data': 'データなし', 'misc.no_requests': 'リクエストなし', 'misc.waiting_data': 'データ待ち…', 'misc.shutting_down': '終了中...',
+            'toast.stats_cleared': '統計がクリアされました', 'toast.debug_cleared': 'デバッグ記録がクリアされました', 'toast.clear_failed': 'クリアに失敗しました', 'toast.load_cfg_failed': '設定の読み込みに失敗しました', 'toast.device_fallback': '選択したデバイスは使用できません。自動にフォールバックしました', 'toast.cfg_saved': '設定が保存されました。一部の変更は再起動が必要です', 'toast.save_failed': '保存に失敗しました: ', 'toast.enter_path': '先にResamplersパスを入力してください', 'toast.install_ok': 'ブリッジが正常にインストールされました', 'toast.install_failed': 'インストールに失敗しました', 'toast.connect_failed': 'サーバーへの接続に失敗しました', 'toast.installing': 'インストール中…',
+            'cfg.group.audio': 'オーディオ', 'cfg.group.model': 'モデル', 'cfg.group.vocoder': 'Vocoder', 'cfg.group.hnsep': 'HN-SEP', 'cfg.group.processing': '処理', 'cfg.group.performance': 'パフォーマンス', 'cfg.group.server': 'サーバー', 'cfg.group.other': 'その他',
+            'cfg.sample_rate': 'サンプルレート', 'cfg.n_fft': 'FFTサイズ', 'cfg.win_size': 'ウィンドウサイズ', 'cfg.hop_size': 'ホップサイズ', 'cfg.hop_size_interp': '補間ホップ', 'cfg.num_mels': 'Melビン数', 'cfg.fmin': '最小周波数', 'cfg.fmax': '最大周波数', 'cfg.pad_frames': 'パッドフレーム数', 'cfg.vocoder_model': 'Vocoderモデルパス', 'cfg.vocoder_model_type': 'モデルタイプ', 'cfg.vocoder_model_fp16': 'FP16 Vocoderモデルパス', 'cfg.vocoder_use_fp16': '量子化ボコーダーを使用 (FP16)', 'cfg.hnsep_model': 'HN-SEPモデルパス', 'cfg.wave_norm': '波形正規化', 'cfg.wave_norm_clip': '無音をクリップ', 'cfg.loop_mode': 'ループモード (He反転)', 'cfg.peak_limit': 'ピーク制限', 'cfg.num_threads': '推論スレッド数', 'cfg.device': 'デバイス', 'cfg.device_id': 'DirectMLデバイス', 'cfg.host': 'ホスト', 'cfg.port': 'ポート', 'cfg.device_unavailable': '現在の値は利用できません'
+        };
+        // French translations (complete)
+        I18N.fr = {
+            'status.connecting': 'Connexion...', 'status.online': 'En ligne', 'status.offline': 'Hors ligne',
+            'common.exit': 'Quitter', 'common.clear': 'Effacer', 'common.on': 'Activé', 'common.off': 'Désactivé',
+            'nav.monitor': '📊 Moniteur', 'nav.config': '⚙ Configuration', 'nav.setup': '🔧 Installation',
+            'card.total_requests': 'Requêtes totales', 'card.avg_latency': 'Latence moy.', 'card.p95_latency': 'Latence P95', 'card.cache_hit': 'Taux cache', 'card.throughput': 'Débit', 'card.errors': 'Erreurs',
+            'mon.activity': '📈 Activité des requêtes', 'mon.breakdown': '📊 Répartition du temps (Moy)', 'mon.feature': 'Extraction', 'mon.synthesis': 'Synthèse', 'mon.postprocess': 'Post-traitement', 'mon.recent': '📋 Requêtes récentes', 'mon.clear_stats': 'Réinitialiser stats',
+            'table.total_ms': 'Total(ms)', 'table.feature': 'Extraction', 'table.synthesis': 'Synthèse', 'table.postprocess': 'Post-traitement', 'table.samples': 'Échantillons', 'table.cache': 'Cache', 'table.time': 'Temps', 'table.source': 'Source', 'table.args': 'Args',
+            'dbg.title': '🐛 Args CLI du bridge', 'dbg.desc': 'Affiche les 50 derniers payloads CLI du bridge (corps POST /) pour vérifier que les flags sont bien transmis au serveur.',
+            'flags.title': '🏷 Référence rapide des flags', 'flags.desc': 'Permet de vérifier les flags OpenUTAU/UTAU. Vous pouvez aussi inspecter la chaîne de flags exacte dans « Bridge CLI Args » ci-dessus.',
+            'flags.he.meaning': 'Basculer stratégie d’extension (XOR avec config <code>processing.loop_mode</code>)', 'flags.he.range': 'Pas de valeur, ex : <code>He</code>',
+            'flags.hg.meaning': 'Grawl', 'flags.hg.range': '<code>0-100</code>, ex : <code>HG50</code>',
+            'flags.ht.meaning': 'Tension (inclinaison spectrale)', 'flags.ht.range': '<code>-100..100</code>, ex : <code>Ht20</code>',
+            'flags.hb.meaning': 'Aspérité (ratio bruit)', 'flags.hb.range': '<code>0..500</code>, ex : <code>Hb80</code>',
+            'flags.hv.meaning': 'Voicing (ratio harmonique)', 'flags.hv.range': '<code>0..150</code>, ex : <code>Hv120</code>',
+            'flags.g.meaning': 'Genre / décalage formant', 'flags.g.range': 'Entier, ex : <code>g-10</code>',
+            'flags.a.meaning': 'Modulation amplitude par taux de pitch', 'flags.a.range': '<code>-100..100</code>, ex : <code>A5</code>',
+            'flags.p.meaning': 'Intensité normalisation loudness', 'flags.p.range': '<code>0..100</code>, ex : <code>P80</code>',
+            'cfg.title': '⚙ Config d’exécution', 'cfg.save': '💾 Sauvegarder', 'cfg.reset': '🔄 Réinitialiser', 'cfg.desc': 'Cliquez sur Sauvegarder pour écrire config.yaml. Certains paramètres nécessitent un redémarrage.',
+            'setup.title': '🔧 Assistant d’installation OpenUTAU', 'setup.desc': 'Installe le bridge HiFiSampler dans OpenUTAU en 3 étapes.',
+            'setup.step1.title': 'Choisissez le dossier Resamplers d’OpenUTAU', 'setup.step1.p1': 'Ouvrez le répertoire d’installation d’OpenUTAU et localisez <code>Resamplers</code>.', 'setup.step1.p2': 'Habituellement : <code>C:\\Users\\VotreNom\\OpenUtau\\Resamplers</code>', 'setup.step1.p3': 'Ou dans le dossier du programme OpenUTAU.', 'setup.step1.placeholder': 'Entrez ou collez le chemin complet du dossier Resamplers',
+            'setup.step2.title': 'Installer le bridge', 'setup.step2.p1': 'Cliquez ci-dessous pour copier <code>hifisampler.exe</code> dans Resamplers.', 'setup.step2.install': '📦 Installer le bridge',
+            'setup.step3.title': 'Configurer OpenUTAU', 'setup.step3.li1': '<strong>Redémarrez OpenUTAU</strong>', 'setup.step3.li2': 'Passez en <strong>mode Classic</strong>', 'setup.step3.li3': 'Cliquez sur la <strong>🔧 clé</strong> en haut à droite', 'setup.step3.li4': 'Dans le menu Resampler, sélectionnez <code>hifisampler.exe</code>', 'setup.step3.li5': 'C’est fait ! Profitez de la synthèse HiFi UTAU 🎉',
+            'misc.no_records': 'Aucun enregistrement', 'misc.no_data': 'Pas de données', 'misc.no_requests': 'Aucune requête', 'misc.waiting_data': 'En attente de données…', 'misc.shutting_down': 'Arrêt en cours...',
+            'toast.stats_cleared': 'Statistiques réinitialisées', 'toast.debug_cleared': 'Logs debug réinitialisés', 'toast.clear_failed': 'Échec de réinitialisation', 'toast.load_cfg_failed': 'Échec du chargement de la config', 'toast.device_fallback': 'Périphérique sélectionné indisponible, retour automatique à auto', 'toast.cfg_saved': 'Config enregistrée. Certaines modifs exigent redémarrage', 'toast.save_failed': 'Échec de sauvegarde : ', 'toast.enter_path': 'Veuillez entrer d’abord le chemin Resamplers', 'toast.install_ok': 'Bridge installé avec succès', 'toast.install_failed': 'Échec d’installation', 'toast.connect_failed': 'Connexion au serveur échouée', 'toast.installing': 'Installation…',
+            'cfg.group.audio': 'Audio', 'cfg.group.model': 'Modèle', 'cfg.group.vocoder': 'Vocoder', 'cfg.group.hnsep': 'HN-SEP', 'cfg.group.processing': 'Traitement', 'cfg.group.performance': 'Performance', 'cfg.group.server': 'Serveur', 'cfg.group.other': 'Autre',
+            'cfg.sample_rate': 'Taux d’échantillonnage', 'cfg.n_fft': 'Taille FFT', 'cfg.win_size': 'Taille fenêtre', 'cfg.hop_size': 'Taille hop', 'cfg.hop_size_interp': 'Hop interpolation', 'cfg.num_mels': 'Bins Mel', 'cfg.fmin': 'Freq min', 'cfg.fmax': 'Freq max', 'cfg.pad_frames': 'Frames padding', 'cfg.vocoder_model': 'Chemin modèle Vocoder', 'cfg.vocoder_model_type': 'Type modèle', 'cfg.vocoder_model_fp16': 'Chemin modèle FP16', 'cfg.vocoder_use_fp16': 'Utiliser vocodeur quantifié (FP16)', 'cfg.hnsep_model': 'Chemin modèle HN-SEP', 'cfg.wave_norm': 'Normalisation onde', 'cfg.wave_norm_clip': 'Couper silence', 'cfg.loop_mode': 'Mode boucle (He invert)', 'cfg.peak_limit': 'Limite pic', 'cfg.num_threads': 'Threads inférence', 'cfg.device': 'Appareil', 'cfg.device_id': 'Appareil DirectML', 'cfg.host': 'Hôte', 'cfg.port': 'Port', 'cfg.device_unavailable': 'Valeur actuelle indisponible'
+        };
+        // German translations (complete)
+        I18N.de = {
+            'status.connecting': 'Verbinden...', 'status.online': 'Online', 'status.offline': 'Offline',
+            'common.exit': 'Beenden', 'common.clear': 'Leeren', 'common.on': 'Ein', 'common.off': 'Aus',
+            'nav.monitor': '📊 Überwachen', 'nav.config': '⚙ Konfiguration', 'nav.setup': '🔧 Einrichtung',
+            'card.total_requests': 'Gesamtanfragen', 'card.avg_latency': 'Ø Latenz', 'card.p95_latency': 'P95 Latenz', 'card.cache_hit': 'Cache-Treffer', 'card.throughput': 'Durchsatz', 'card.errors': 'Fehler',
+            'mon.activity': '📈 Anfrageaktivität', 'mon.breakdown': '📊 Zeitaufteilung (Ø)', 'mon.feature': 'Merkmalextraktion', 'mon.synthesis': 'Synthese', 'mon.postprocess': 'Nachbearbeitung', 'mon.recent': '📋 Letzte Anfragen', 'mon.clear_stats': 'Statistiken löschen',
+            'table.total_ms': 'Gesamt(ms)', 'table.feature': 'Merkmal', 'table.synthesis': 'Synthese', 'table.postprocess': 'Nachb.', 'table.samples': 'Samples', 'table.cache': 'Cache', 'table.time': 'Zeit', 'table.source': 'Quelle', 'table.args': 'Args',
+            'dbg.title': '🐛 Bridge CLI-Parameter', 'dbg.desc': 'Zeigt die letzten 50 Bridge-CLI-Payloads (POST / Body) zur Kontrolle, ob Flags wirklich an den Server gesendet werden.',
+            'flags.title': '🏷 Flag Schnellreferenz', 'flags.desc': 'Dient zur Überprüfung von OpenUTAU/UTAU Flags. Die tatsächliche Flag-Zeichenfolge kann oben unter „Bridge CLI Args" eingesehen werden.',
+            'flags.he.meaning': 'Erweiterungsstrategie umschalten (XOR mit config <code>processing.loop_mode</code>)', 'flags.he.range': 'Kein Wert, z. B. <code>He</code>',
+            'flags.hg.meaning': 'Growl', 'flags.hg.range': '<code>0-100</code>, z. B. <code>HG50</code>',
+            'flags.ht.meaning': 'Spannung (Spektralneigung)', 'flags.ht.range': '<code>-100..100</code>, z. B. <code>Ht20</code>',
+            'flags.hb.meaning': 'Atmungsgeräusch (Rauschanteil)', 'flags.hb.range': '<code>0..500</code>, z. B. <code>Hb80</code>',
+            'flags.hv.meaning': 'Voicing (harmonischer Anteil)', 'flags.hv.range': '<code>0..150</code>, z. B. <code>Hv120</code>',
+            'flags.g.meaning': 'Geschlecht / Formantverschiebung', 'flags.g.range': 'Ganzzahl, z. B. <code>g-10</code>',
+            'flags.a.meaning': 'Amplitudenmodulation nach Pitchrate', 'flags.a.range': '<code>-100..100</code>, z. B. <code>A5</code>',
+            'flags.p.meaning': 'Lautheitsnormalisierung Stärke', 'flags.p.range': '<code>0..100</code>, z. B. <code>P80</code>',
+            'cfg.title': '⚙ Laufzeitkonfiguration', 'cfg.save': '💾 Speichern', 'cfg.reset': '🔄 Zurücksetzen', 'cfg.desc': 'Klicken Sie auf Speichern, um config.yaml zu schreiben. Einige Einstellungen benötigen einen Neustart.',
+            'setup.title': '🔧 OpenUTAU Installationsassistent', 'setup.desc': 'Installiert die HiFiSampler-Bridge in 3 Schritten in OpenUTAU.',
+            'setup.step1.title': 'Wählen Sie den Resamplers-Ordner von OpenUTAU', 'setup.step1.p1': 'Öffnen Sie das Installationsverzeichnis von OpenUTAU und suchen Sie den Ordner <code>Resamplers</code>.', 'setup.step1.p2': 'Üblicherweise: <code>C:\\Users\\IhrName\\OpenUtau\\Resamplers</code>', 'setup.step1.p3': 'Oder im OpenUTAU-Programmordner.', 'setup.step1.placeholder': 'Geben Sie den vollständigen Pfad des Resamplers-Ordners ein oder fügen Sie ihn ein',
+            'setup.step2.title': 'Bridge installieren', 'setup.step2.p1': 'Klicken Sie unten, um <code>hifisampler.exe</code> in Resamplers zu kopieren.', 'setup.step2.install': '📦 Bridge installieren',
+            'setup.step3.title': 'OpenUTAU konfigurieren', 'setup.step3.li1': '<strong>Starten Sie OpenUTAU neu</strong>', 'setup.step3.li2': 'Wechseln Sie in den <strong>Classic-Modus</strong>', 'setup.step3.li3': 'Klicken Sie auf den <strong>🔧 Schraubenschlüssel</strong> oben rechts', 'setup.step3.li4': 'Wählen Sie im Resampler-Dropdown <code>hifisampler.exe</code> aus', 'setup.step3.li5': 'Fertig! Genießen Sie HiFi UTAU-Synthese 🎉',
+            'misc.no_records': 'Keine Einträge', 'misc.no_data': 'Keine Daten', 'misc.no_requests': 'Keine Anfragen', 'misc.waiting_data': 'Warte auf Daten…', 'misc.shutting_down': 'Beende...',
+            'toast.stats_cleared': 'Statistiken gelöscht', 'toast.debug_cleared': 'Debug-Protokolle gelöscht', 'toast.clear_failed': 'Löschen fehlgeschlagen', 'toast.load_cfg_failed': 'Konfig laden fehlgeschlagen', 'toast.device_fallback': 'Gewähltes Gerät nicht verfügbar, automatisch auf auto zurückgesetzt', 'toast.cfg_saved': 'Konfig gespeichert. Einige Änderungen erfordern Neustart', 'toast.save_failed': 'Speichern fehlgeschlagen: ', 'toast.enter_path': 'Bitte zuerst Resamplers-Pfad eingeben', 'toast.install_ok': 'Bridge erfolgreich installiert', 'toast.install_failed': 'Install failed', 'toast.connect_failed': 'Serververbindung fehlgeschlagen', 'toast.installing': 'Installation…',
+            'cfg.group.audio': 'Audio', 'cfg.group.model': 'Modell', 'cfg.group.vocoder': 'Vocoder', 'cfg.group.hnsep': 'HN-SEP', 'cfg.group.processing': 'Verarbeitung', 'cfg.group.performance': 'Leistung', 'cfg.group.server': 'Server', 'cfg.group.other': 'Andere',
+            'cfg.sample_rate': 'Abtastrate', 'cfg.n_fft': 'FFT-Größe', 'cfg.win_size': 'Fenstergröße', 'cfg.hop_size': 'Hop-Größe', 'cfg.hop_size_interp': 'Interp-Hop', 'cfg.num_mels': 'Mel-Bins', 'cfg.fmin': 'Min Freq', 'cfg.fmax': 'Max Freq', 'cfg.pad_frames': 'Pad Frames', 'cfg.vocoder_model': 'Vocoder-Modellpfad', 'cfg.vocoder_model_type': 'Modelltyp', 'cfg.vocoder_model_fp16': 'FP16 Pfad', 'cfg.vocoder_use_fp16': 'Quantisierten Vocoder nutzen (FP16)', 'cfg.hnsep_model': 'HN-SEP Modellpfad', 'cfg.wave_norm': 'Wave-Norm', 'cfg.wave_norm_clip': 'Stille clippen', 'cfg.loop_mode': 'Loop-Modus (He invert)', 'cfg.peak_limit': 'Peak-Limit', 'cfg.num_threads': 'Inference-Threads', 'cfg.device': 'Gerät', 'cfg.device_id': 'DirectML Gerät', 'cfg.host': 'Host', 'cfg.port': 'Port', 'cfg.device_unavailable': 'Aktueller Wert nicht verfügbar'
+        };
+        // Russian translations (complete)
+        I18N.ru = {
+            'status.connecting': 'Подключение...', 'status.online': 'Онлайн', 'status.offline': 'Оффлайн',
+            'common.exit': 'Выход', 'common.clear': 'Очистить', 'common.on': 'Вкл', 'common.off': 'Выкл',
+            'nav.monitor': '📊 Монитор', 'nav.config': '⚙ Настройки', 'nav.setup': '🔧 Установка',
+            'card.total_requests': 'Всего запросов', 'card.avg_latency': 'Ср. задержка', 'card.p95_latency': 'P95 задержка', 'card.cache_hit': 'Кэш-хит', 'card.throughput': 'Пропускная способность', 'card.errors': 'Ошибки',
+            'mon.activity': '📈 Активность запросов', 'mon.breakdown': '📊 Распределение времени (ср.)', 'mon.feature': 'Извлечение', 'mon.synthesis': 'Синтез', 'mon.postprocess': 'Постобработка', 'mon.recent': '📋 Последние запросы', 'mon.clear_stats': 'Сбросить статистику',
+            'table.total_ms': 'Итого(ms)', 'table.feature': 'Извлечение', 'table.synthesis': 'Синтез', 'table.postprocess': 'Постобработка', 'table.samples': 'Сэмплы', 'table.cache': 'Кэш', 'table.time': 'Время', 'table.source': 'Источник', 'table.args': 'Аргументы',
+            'dbg.title': '🐛 Аргументы CLI моста', 'dbg.desc': 'Показывает последние 50 сырьевых payloadов CLI моста (тело POST /) чтобы убедиться, что флаги действительно передаются на сервер.',
+            'flags.title': '🏷 Быстрая справка по флагам', 'flags.desc': 'Используйте для проверки флагов OpenUTAU/UTAU. Также можно посмотреть точную строку флагов выше в Bridge CLI Args.',
+            'flags.he.meaning': 'Переключить стратегию расширения (XOR с config <code>processing.loop_mode</code>)', 'flags.he.range': 'Без значения, например <code>He</code>',
+            'flags.hg.meaning': 'Growl', 'flags.hg.range': '<code>0-100</code>, например <code>HG50</code>',
+            'flags.ht.meaning': 'Натяжение (наклон спектра)', 'flags.ht.range': '<code>-100..100</code>, например <code>Ht20</code>',
+            'flags.hb.meaning': 'Дышание (соотношение шума)', 'flags.hb.range': '<code>0..500</code>, например <code>Hb80</code>',
+            'flags.hv.meaning': 'Voicing (гармоническое соотношение)', 'flags.hv.range': '<code>0..150</code>, например <code>Hv120</code>',
+            'flags.g.meaning': 'Гендер / смещение формант', 'flags.g.range': 'Целое, например <code>g-10</code>',
+            'flags.a.meaning': 'Модуляция амплитуды по скорости pitch', 'flags.a.range': '<code>-100..100</code>, например <code>A5</code>',
+            'flags.p.meaning': 'Сила нормализации громкости', 'flags.p.range': '<code>0..100</code>, например <code>P80</code>',
+            'cfg.title': '⚙ Конфигурация времени выполнения', 'cfg.save': '💾 Сохранить', 'cfg.reset': '🔄 Сбросить', 'cfg.desc': 'Нажмите Сохранить, чтобы записать config.yaml. Для некоторых настроек требуется перезапуск.',
+            'setup.title': '🔧 Мастер установки OpenUTAU', 'setup.desc': 'Установите мост HiFiSampler в OpenUTAU за 3 шага.',
+            'setup.step1.title': 'Выберите папку Resamplers OpenUTAU', 'setup.step1.p1': 'Откройте папку установки OpenUTAU и найдите <code>Resamplers</code>.', 'setup.step1.p2': 'Обычно: <code>C:\\Users\\ВашеИмя\\OpenUtau\\Resamplers</code>', 'setup.step1.p3': 'Или в папке программы OpenUTAU.', 'setup.step1.placeholder': 'Введите или вставьте полный путь к папке Resamplers',
+            'setup.step2.title': 'Установить мост', 'setup.step2.p1': 'Нажмите ниже, чтобы скопировать <code>hifisampler.exe</code> в Resamplers.', 'setup.step2.install': '📦 Установить мост',
+            'setup.step3.title': 'Настроить OpenUTAU', 'setup.step3.li1': '<strong>Перезапустите OpenUTAU</strong>', 'setup.step3.li2': 'Переключитесь в <strong>Classic режим</strong>', 'setup.step3.li3': 'Нажмите на <strong>🔧 ключ</strong> в правом верхнем углу', 'setup.step3.li4': 'Выберите <code>hifisampler.exe</code> в списке Resampler', 'setup.step3.li5': 'Готово! Наслаждайтесь HiFi синтезом UTAU 🎉',
+            'misc.no_records': 'Нет записей', 'misc.no_data': 'Нет данных', 'misc.no_requests': 'Нет запросов', 'misc.waiting_data': 'Ожидание данных…', 'misc.shutting_down': 'Завершение...',
+            'toast.stats_cleared': 'Статистика сброшена', 'toast.debug_cleared': 'Отладочные записи очищены', 'toast.clear_failed': 'Сброс не удался', 'toast.load_cfg_failed': 'Не удалось загрузить конфиг', 'toast.device_fallback': 'Выбранное устройство недоступно, возвращено авто', 'toast.cfg_saved': 'Конфиг сохранен. Некоторые изменения требуют перезапуска', 'toast.save_failed': 'Сохранение не удалось: ', 'toast.enter_path': 'Сначала введите путь Resamplers', 'toast.install_ok': 'Мост успешно установлен', 'toast.install_failed': 'Установка не удалась', 'toast.connect_failed': 'Не удалось подключиться к серверу', 'toast.installing': 'Установка...',
+            'cfg.group.audio': 'Аудио', 'cfg.group.model': 'Модель', 'cfg.group.vocoder': 'Vocoder', 'cfg.group.hnsep': 'HN-SEP', 'cfg.group.processing': 'Обработка', 'cfg.group.performance': 'Производительность', 'cfg.group.server': 'Сервер', 'cfg.group.other': 'Другое',
+            'cfg.sample_rate': 'Частота', 'cfg.n_fft': 'Размер FFT', 'cfg.win_size': 'Размер окна', 'cfg.hop_size': 'Размер hop', 'cfg.hop_size_interp': 'Interp hop', 'cfg.num_mels': 'Mel бины', 'cfg.fmin': 'Мин частота', 'cfg.fmax': 'Макс частота', 'cfg.pad_frames': 'Пэд кадры', 'cfg.vocoder_model': 'Путь к модели вокодера', 'cfg.vocoder_model_type': 'Тип модели', 'cfg.vocoder_model_fp16': 'Путь модели FP16', 'cfg.vocoder_use_fp16': 'Исповать квантованнюн вокодер (FP16)', 'cfg.hnsep_model': 'Путь HN-SEP модели', 'cfg.wave_norm': 'Норм волны', 'cfg.wave_norm_clip': 'Обрезать тишину', 'cfg.loop_mode': 'Режим цикла (He инверт)', 'cfg.peak_limit': 'Лимит пика', 'cfg.num_threads': 'Потоки инференса', 'cfg.device': 'Устройство', 'cfg.device_id': 'DirectML устройство', 'cfg.host': 'Хост', 'cfg.port': 'Порт', 'cfg.device_unavailable': 'Текущее значение недоступно'
+        };
         const SUPPORTED_LANGS = ['zh', 'ja', 'en', 'fr', 'de', 'ru'];
         let LANG = localStorage.getItem('hifisampler.lang') || 'zh';
         if (!SUPPORTED_LANGS.includes(LANG)) LANG = 'zh';
@@ -904,8 +1091,19 @@
             }).join('');
         }
         /* ── time-series data ── */
-        const TS_MAX = 150; // 150 points × 0.2s = 30s window
-        const tsData = [];  // [{t: Date, active: number}]
+        const TS_WINDOW_MS = 30000;
+        const TS_MAX = 200;
+        const tsData = [];  // [{t: number, active: number}]
+        let chartRaf = 0;
+        let chartRunning = false;
+        let chartCtx = null;
+        let chartSize = { w: 0, h: 0, dpr: 0 };
+
+        function trimTsData(nowMs) {
+            const cutoff = nowMs - TS_WINDOW_MS;
+            while (tsData.length && tsData[0].t < cutoff) tsData.shift();
+            if (tsData.length > TS_MAX) tsData.splice(0, tsData.length - TS_MAX);
+        }
         function upMon(d) {
             $('c-req').textContent = d.total_requests;
             $('c-avg').innerHTML = d.avg_total_ms.toFixed(1) + '<span class="un">ms</span>';
@@ -914,9 +1112,9 @@
             $('c-rps').innerHTML = d.throughput_rps.toFixed(1) + '<span class="un">rps</span>';
             $('c-err').textContent = d.total_errors;
             /* time-series: record active requests */
-            tsData.push({ t: new Date(), active: d.active_requests || 0 });
-            while (tsData.length > TS_MAX) tsData.shift();
-            drawChart();
+            const nowMs = Date.now();
+            tsData.push({ t: nowMs, active: d.active_requests || 0 });
+            trimTsData(nowMs);
             /* breakdown */
             const bd = $('bkd'), totalMs = d.avg_feature_ms + d.avg_synthesis_ms + d.avg_postprocess_ms;
             if (totalMs <= 0) { bd.innerHTML = `<div style="color:var(--text-dim);font-size:12px">${t('misc.no_data')}</div>`; }
@@ -927,24 +1125,47 @@
             else { tb.innerHTML = rc.map((r, i) => `<tr><td>${i + 1}</td><td>${r.total_ms.toFixed(1)}</td><td>${r.feature_ms.toFixed(1)}</td><td>${r.synthesis_ms.toFixed(1)}</td><td>${r.postprocess_ms.toFixed(1)}</td><td>${r.output_samples}</td><td>${r.cache_hit ? '✓' : '✗'}</td></tr>`).join(''); }
         }
         /* ── canvas chart ── */
-        function drawChart() {
+        function getChartFrame() {
             const canvas = $('chart');
+            if (!canvas || !canvas.parentElement) return null;
             const rect = canvas.parentElement.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) return null;
             const dpr = window.devicePixelRatio || 1;
-            const W = rect.width, H = rect.height;
-            canvas.width = W * dpr; canvas.height = H * dpr;
-            const ctx = canvas.getContext('2d');
-            ctx.scale(dpr, dpr);
+            const W = Math.max(1, Math.round(rect.width));
+            const H = Math.max(1, Math.round(rect.height));
+            if (!chartCtx || W !== chartSize.w || H !== chartSize.h || dpr !== chartSize.dpr) {
+                canvas.width = Math.floor(W * dpr);
+                canvas.height = Math.floor(H * dpr);
+                chartCtx = canvas.getContext('2d');
+                chartSize = { w: W, h: H, dpr };
+            }
+            if (!chartCtx) return null;
+            chartCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            return { ctx: chartCtx, W, H };
+        }
+        function drawChart(nowMs) {
+            const frame = getChartFrame();
+            if (!frame) return;
+            const { ctx, W, H } = frame;
             const pad = { l: 36, r: 12, t: 12, b: 24 };
             const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
             ctx.clearRect(0, 0, W, H);
-            if (tsData.length < 2) {
+            if (cw <= 0 || ch <= 0) return;
+
+            const now = nowMs ?? Date.now();
+            const cutoff = now - TS_WINDOW_MS;
+            let first = 0;
+            while (first < tsData.length && tsData[first].t < cutoff) first++;
+            const visibleCount = tsData.length - first;
+            if (visibleCount < 2) {
                 ctx.fillStyle = '#9ca0b4'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
                 ctx.fillText(t('misc.waiting_data'), W / 2, H / 2);
                 return;
             }
-            const maxY = Math.max(1, ...tsData.map(p => p.active));
-            const yTicks = Math.min(maxY, 5);
+
+            let maxY = 1;
+            for (let i = first; i < tsData.length; i++) maxY = Math.max(maxY, tsData[i].active);
+            const yTicks = Math.min(Math.ceil(maxY), 5);
             // grid & Y labels
             ctx.strokeStyle = '#2e3144'; ctx.lineWidth = 1;
             ctx.fillStyle = '#9ca0b4'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
@@ -956,30 +1177,57 @@
             }
             // X labels (~5)
             ctx.textAlign = 'center';
-            const n = tsData.length, xStep = Math.max(1, Math.floor(n / 5));
-            for (let i = 0; i < n; i += xStep) {
-                const x = pad.l + (i / (n - 1)) * cw;
-                const tt = tsData[i].t;
-                const lbl = tt.getHours().toString().padStart(2, '0') + ':' + tt.getMinutes().toString().padStart(2, '0') + ':' + tt.getSeconds().toString().padStart(2, '0');
-                ctx.fillText(lbl, x, H - 4);
+            const xTicks = 4;
+            for (let i = 0; i <= xTicks; i++) {
+                const x = pad.l + (i / xTicks) * cw;
+                const tt = cutoff + (i / xTicks) * TS_WINDOW_MS;
+                ctx.fillText(fmtTs(tt), x, H - 4);
             }
             // area fill
-            ctx.beginPath(); ctx.moveTo(pad.l, pad.t + ch);
-            for (let i = 0; i < n; i++) { ctx.lineTo(pad.l + (i / (n - 1)) * cw, pad.t + ch - (tsData[i].active / maxY) * ch); }
-            ctx.lineTo(pad.l + cw, pad.t + ch); ctx.closePath();
+            const firstPoint = tsData[first];
+            const startX = pad.l + ((firstPoint.t - cutoff) / TS_WINDOW_MS) * cw;
+            ctx.beginPath(); ctx.moveTo(startX, pad.t + ch);
+            for (let i = first; i < tsData.length; i++) {
+                const p = tsData[i];
+                const x = pad.l + ((p.t - cutoff) / TS_WINDOW_MS) * cw;
+                const y = pad.t + ch - (p.active / maxY) * ch;
+                ctx.lineTo(x, y);
+            }
+            const lastPoint = tsData[tsData.length - 1];
+            const endX = pad.l + ((lastPoint.t - cutoff) / TS_WINDOW_MS) * cw;
+            ctx.lineTo(endX, pad.t + ch); ctx.closePath();
             const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + ch);
             grad.addColorStop(0, 'rgba(108,123,240,0.35)'); grad.addColorStop(1, 'rgba(108,123,240,0.02)');
             ctx.fillStyle = grad; ctx.fill();
             // line
             ctx.beginPath();
-            for (let i = 0; i < n; i++) {
-                const x = pad.l + (i / (n - 1)) * cw, y = pad.t + ch - (tsData[i].active / maxY) * ch;
-                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            for (let i = first; i < tsData.length; i++) {
+                const p = tsData[i];
+                const x = pad.l + ((p.t - cutoff) / TS_WINDOW_MS) * cw;
+                const y = pad.t + ch - (p.active / maxY) * ch;
+                i === first ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             }
             ctx.strokeStyle = '#6c7bf0'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
             // latest dot
-            const lx = pad.l + cw, ly = pad.t + ch - (tsData[n - 1].active / maxY) * ch;
+            const lx = pad.l + ((lastPoint.t - cutoff) / TS_WINDOW_MS) * cw;
+            const ly = pad.t + ch - (lastPoint.active / maxY) * ch;
             ctx.beginPath(); ctx.arc(lx, ly, 3, 0, Math.PI * 2); ctx.fillStyle = '#6c7bf0'; ctx.fill();
+        }
+        function chartLoop() {
+            if (!chartRunning) return;
+            drawChart(Date.now());
+            chartRaf = requestAnimationFrame(chartLoop);
+        }
+        function startChartLoop() {
+            if (chartRunning) return;
+            chartRunning = true;
+            chartRaf = requestAnimationFrame(chartLoop);
+        }
+        function stopChartLoop() {
+            if (!chartRunning) return;
+            chartRunning = false;
+            if (chartRaf) cancelAnimationFrame(chartRaf);
+            chartRaf = 0;
         }
         async function resetStats() { try { await fetch(B + '/stats/reset', { method: 'POST' }); poll(); toast(t('toast.stats_cleared')); } catch { toast(t('toast.clear_failed'), false); } }
 
@@ -1029,9 +1277,13 @@
             fmin: { lk: 'cfg.fmin', t: 'number', s: .1, gk: 'cfg.group.audio' },
             fmax: { lk: 'cfg.fmax', t: 'number', s: .1, gk: 'cfg.group.audio' },
             pad_frames: { lk: 'cfg.pad_frames', t: 'number', gk: 'cfg.group.audio' },
-            'vocoder.model': { lk: 'cfg.vocoder_model', t: 'text', gk: 'cfg.group.model' },
-            'vocoder.model_type': { lk: 'cfg.vocoder_model_type', t: 'sel', o: ['onnx'], gk: 'cfg.group.model' },
-            'hnsep.model': { lk: 'cfg.hnsep_model', t: 'text', gk: 'cfg.group.model' },
+            'vocoder.model': { lk: 'cfg.vocoder_model', t: 'text', gk: 'cfg.group.vocoder' },
+            'vocoder.model_type': { lk: 'cfg.vocoder_model_type', t: 'sel', o: ['onnx'], gk: 'cfg.group.vocoder' },
+            'vocoder.model_fp16': { lk: 'cfg.vocoder_model_fp16', t: 'text', gk: 'cfg.group.vocoder' },
+            'vocoder.use_fp16': { lk: 'cfg.vocoder_use_fp16', t: 'bool', gk: 'cfg.group.vocoder' },
+            'hnsep.model': { lk: 'cfg.hnsep_model', t: 'text', gk: 'cfg.group.hnsep' },
+            'hnsep.model_fp16': { lk: 'cfg.hnsep_model_fp16', t: 'text', gk: 'cfg.group.hnsep' },
+            'hnsep.use_fp16': { lk: 'cfg.hnsep_use_fp16', t: 'bool', gk: 'cfg.group.hnsep' },
             'processing.wave_norm': { lk: 'cfg.wave_norm', t: 'bool', gk: 'cfg.group.processing' },
             'processing.wave_norm_clip_silence': { lk: 'cfg.wave_norm_clip', t: 'bool', gk: 'cfg.group.processing' },
             'processing.loop_mode': { lk: 'cfg.loop_mode', t: 'bool', gk: 'cfg.group.processing' },
@@ -1054,6 +1306,9 @@
             const d = normDevice(gv(curCfg, 'performance.device'));
             return d === 'directml' || d === 'dml';
         }
+        function isCpuSelected() {
+            return normDevice(gv(curCfg, 'performance.device')) === 'cpu';
+        }
 
         async function loadCaps() {
             try {
@@ -1072,41 +1327,98 @@
             try { const r = await fetch(B + '/config'); curCfg = await r.json(); renderCfg(); } catch { toast(t('toast.load_cfg_failed'), false); }
         }
         function renderCfg() {
-            const g = $('cfgGrid'), grps = {};
+            const g = $('cfgGrid');
             const sch = JSON.parse(JSON.stringify(SCH));
             sch['performance.device'].o = availableDevices();
 
+            const groups = {};
+            const modelGroups = { vocoder: [], hnsep: [] };
+
             for (const [p, s] of Object.entries(sch)) {
                 if (p === 'performance.device_id' && !isDirectMLSelected()) continue;
-                const gn = t(s.gk || 'cfg.group.other');
-                if (!grps[gn]) grps[gn] = [];
-                grps[gn].push({ p, ...s, l: t(s.lk), v: gv(curCfg, p) });
-            }
-            let h = '';
-            for (const [gn, items] of Object.entries(grps)) {
-                h += `<div class="cfg-hdr">${gn}</div>`;
-                for (const it of items) {
-                    h += `<div class="cfg-i"><span class="k" title="${it.p}">${it.l}</span>`;
-                    if (it.t === 'bool') h += `<select data-p="${it.p}" class="ci"><option value="true" ${it.v ? 'selected' : ''}>${t('common.on')}</option><option value="false" ${!it.v ? 'selected' : ''}>${t('common.off')}</option></select>`;
-                    else if (it.p === 'performance.device_id' && caps.dml_adapters && caps.dml_adapters.length) {
-                        h += `<select data-p="${it.p}" class="ci">`;
-                        for (const ad of caps.dml_adapters) {
-                            const val = Number(ad.id);
-                            const selected = Number(it.v) === val ? 'selected' : '';
-                            h += `<option value="${val}" ${selected}>${ad.name || ('Adapter ' + val)} (#${val})</option>`;
-                        }
-                        h += '</select>';
-                    }
-                    else if (it.t === 'sel') { h += `<select data-p="${it.p}" class="ci">`; for (const o of it.o) h += `<option value="${o}" ${normDevice(it.v) === normDevice(o) ? 'selected' : ''}>${o}</option>`; h += '</select>'; }
-                    else h += `<input data-p="${it.p}" class="ci" type="${it.t}" value="${it.v}" ${it.s ? 'step="' + it.s + '"' : ''}>`;
-
-                    if (it.p === 'performance.device' && !availableDevices().includes(normDevice(it.v))) {
-                        h += `<span style="color:var(--red);font-size:11px;">${t('cfg.device_unavailable')}</span>`;
-                    }
-
-                    h += '</div>';
+                const entry = { p, ...s, l: t(s.lk), v: gv(curCfg, p) };
+                if (p.startsWith('vocoder.')) {
+                    modelGroups.vocoder.push(entry);
+                    continue;
                 }
+                if (p.startsWith('hnsep.')) {
+                    modelGroups.hnsep.push(entry);
+                    continue;
+                }
+                const gk = s.gk || 'cfg.group.other';
+                if (!groups[gk]) groups[gk] = [];
+                groups[gk].push(entry);
             }
+
+            const renderItem = (it) => {
+                let h = `<div class="cfg-i"><span class="k" title="${it.p}">${it.l}</span>`;
+                if (it.t === 'bool') {
+                    h += `<select data-p="${it.p}" class="ci"><option value="true" ${it.v ? 'selected' : ''}>${t('common.on')}</option><option value="false" ${!it.v ? 'selected' : ''}>${t('common.off')}</option></select>`;
+                }
+                else if (it.p === 'performance.device_id' && caps.dml_adapters && caps.dml_adapters.length) {
+                    h += `<select data-p="${it.p}" class="ci">`;
+                    for (const ad of caps.dml_adapters) {
+                        const val = Number(ad.id);
+                        const selected = Number(it.v) === val ? 'selected' : '';
+                        h += `<option value="${val}" ${selected}>${ad.name || ('Adapter ' + val)} (#${val})</option>`;
+                    }
+                    h += '</select>';
+                }
+                else if (it.t === 'sel') {
+                    h += `<select data-p="${it.p}" class="ci">`;
+                    for (const o of it.o) h += `<option value="${o}" ${normDevice(it.v) === normDevice(o) ? 'selected' : ''}>${o}</option>`;
+                    h += '</select>';
+                }
+                else {
+                    h += `<input data-p="${it.p}" class="ci" type="${it.t}" value="${it.v}" ${it.s ? 'step="' + it.s + '"' : ''}>`;
+                }
+
+                if (it.p === 'performance.device' && !availableDevices().includes(normDevice(it.v))) {
+                    h += `<span style="color:var(--red);font-size:11px;">${t('cfg.device_unavailable')}</span>`;
+                }
+                if (it.p === 'hnsep.use_fp16' && isCpuSelected()) {
+                    h += `<span style="color:var(--red);font-size:11px;">${t('cfg.hnsep_fp16_cpu_ignored')}</span>`;
+                }
+
+                h += '</div>';
+                return h;
+            };
+
+            const renderGroup = (gk, items) => {
+                let h = `<div class="cfg-hdr">${t(gk)}</div>`;
+                for (const it of items) h += renderItem(it);
+                return h;
+            };
+
+            let h = '';
+            if (modelGroups.vocoder.length || modelGroups.hnsep.length) {
+                h += '<div class="cfg-models">';
+                if (modelGroups.vocoder.length) {
+                    h += `<div class="cfg-card"><div class="cfg-card-h">${t('cfg.group.vocoder')}</div><div class="cfg-card-b">`;
+                    for (const it of modelGroups.vocoder) h += renderItem(it);
+                    h += '</div></div>';
+                }
+                if (modelGroups.hnsep.length) {
+                    h += `<div class="cfg-card"><div class="cfg-card-h">${t('cfg.group.hnsep')}</div><div class="cfg-card-b">`;
+                    for (const it of modelGroups.hnsep) h += renderItem(it);
+                    h += '</div></div>';
+                }
+                h += '</div>';
+            }
+
+            const groupOrder = ['cfg.group.audio', 'cfg.group.processing', 'cfg.group.performance', 'cfg.group.server', 'cfg.group.other'];
+            const rendered = new Set();
+            for (const gk of groupOrder) {
+                const items = groups[gk];
+                if (!items || !items.length) continue;
+                rendered.add(gk);
+                h += renderGroup(gk, items);
+            }
+            for (const [gk, items] of Object.entries(groups)) {
+                if (rendered.has(gk)) continue;
+                h += renderGroup(gk, items);
+            }
+
             g.innerHTML = h;
 
             const devSel = document.querySelector('.ci[data-p="performance.device"]');
@@ -1156,6 +1468,11 @@
             applyI18n();
         };
         applyI18n();
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) stopChartLoop();
+            else startChartLoop();
+        });
+        startChartLoop();
         poll(); pollDbg();
         loadCaps().then(loadCfg);
         setInterval(poll, 200);

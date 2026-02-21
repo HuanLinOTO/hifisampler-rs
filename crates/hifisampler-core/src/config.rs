@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+use crate::ep::detect_ep_capabilities;
+
 /// Main configuration for HiFiSampler.
 /// Mirrors the Python config.py dataclass structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,6 +153,25 @@ fn default_hnsep_model_fp16() -> PathBuf {
 fn default_hnsep_use_fp16() -> bool {
     false
 }
+fn should_default_fp16_for_device(device: &str) -> bool {
+    let device_lower = device.trim().to_ascii_lowercase();
+    if device_lower == "directml" || device_lower == "dml" {
+        return true;
+    }
+    if device_lower != "auto" {
+        return false;
+    }
+    let caps = detect_ep_capabilities();
+    let has_dml = caps
+        .available_devices
+        .iter()
+        .any(|d| d == "directml" || d == "dml");
+    let has_cuda = caps
+        .available_devices
+        .iter()
+        .any(|d| d == "cuda" || d == "tensorrt");
+    has_dml && !has_cuda
+}
 fn default_peak_limit() -> f32 {
     1.0
 }
@@ -252,6 +273,8 @@ impl Config {
             self.vocoder.model.clone()
         } else if self.vocoder.use_fp16 {
             self.vocoder.model_fp16.clone()
+        } else if should_default_fp16_for_device(device) && self.vocoder.model_fp16.exists() {
+            self.vocoder.model_fp16.clone()
         } else {
             self.vocoder.model.clone()
         }
@@ -262,6 +285,8 @@ impl Config {
         if device.eq_ignore_ascii_case("cpu") {
             self.hnsep.model.clone()
         } else if self.hnsep.use_fp16 && self.hnsep.model_fp16.exists() {
+            self.hnsep.model_fp16.clone()
+        } else if should_default_fp16_for_device(device) && self.hnsep.model_fp16.exists() {
             self.hnsep.model_fp16.clone()
         } else {
             self.hnsep.model.clone()

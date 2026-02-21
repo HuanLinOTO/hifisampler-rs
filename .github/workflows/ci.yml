@@ -402,7 +402,7 @@ jobs:
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: ${{ matrix.artifact }}.zip
           path: |
             dist/${{ matrix.artifact }}.zip
             dist/${{ matrix.artifact }}.tar.gz

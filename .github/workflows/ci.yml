@@ -12,6 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   # Model archive (7z) from HuggingFace
   MODELS_URL: "https://huggingface.co/SVCFusion/things/resolve/main/hifisampler-models.7z"
+  MODELS_CACHE_KEY: "shared-models-v3"
   # ONNX Runtime version — must be >= 1.23.x for ort 2.0.0-rc.11
   ORT_VERSION: "1.24.1"
 
@@ -104,7 +105,7 @@ jobs:
       - name: Upload compiled binaries
         uses: actions/upload-artifact@v4
         with:
-          name: binaries-${{ matrix.platform }}
+          name: binaries-${{ matrix.platform }}.zip
           path: upload_bin/
 
   # ────────────────────────── Package (per-EP variant) ──────────────────────────
@@ -120,7 +121,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: models
-          key: shared-models-v1
+          key: ${{ env.MODELS_CACHE_KEY }}
 
       - name: Download models
         if: steps.cache-models.outputs.cache-hit != 'true'
@@ -151,20 +152,30 @@ jobs:
           else
             echo "::warning::Vocoder model.onnx not found in archive"
           fi
-          if [ -f "models_extract/vr/model.onnx" ]; then
-            cp "models_extract/vr/model.onnx" models/hnsep/model.onnx
-            echo "✓ HN-SEP model copied"
-          elif [ -f "models_extract/vr/model.pt" ]; then
-            echo "::warning::Only model.pt found for HN-SEP (no ONNX), skipping"
+          if [ -f "models_extract/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02_fp16.onnx" ]; then
+            cp "models_extract/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02_fp16.onnx" models/vocoder/model_fp16.onnx
+            echo "✓ Vocoder FP16 model copied"
           else
-            echo "::warning::HN-SEP model not found in archive"
+            echo "::warning::Vocoder FP16 model not found in archive"
+          fi
+          if [ -f "models_extract/vr/model_fp32_slim.onnx" ]; then
+            cp "models_extract/vr/model_fp32_slim.onnx" models/hnsep/model_fp32_slim.onnx
+            echo "✓ HN-SEP FP32 slim model copied"
+          else
+            echo "::warning::HN-SEP model_fp32_slim.onnx not found in archive"
+          fi
+          if [ -f "models_extract/vr/model_fp16.onnx" ]; then
+            cp "models_extract/vr/model_fp16.onnx" models/hnsep/model_fp16.onnx
+            echo "✓ HN-SEP FP16 model copied"
+          else
+            echo "::warning::HN-SEP model_fp16.onnx not found in archive"
           fi
           ls -lhR models/ || true
 
       - name: Upload shared models artifact
         uses: actions/upload-artifact@v4
         with:
-          name: shared-models
+          name: shared-models.zip
           path: models/
           if-no-files-found: warn
 
@@ -234,14 +245,25 @@ jobs:
       - name: Download compiled binaries
         uses: actions/download-artifact@v4
         with:
-          name: binaries-${{ matrix.platform }}
+          name: binaries-${{ matrix.platform }}.zip
           path: binaries
 
       - name: Download shared models artifact
         uses: actions/download-artifact@v4
         with:
-          name: shared-models
+          name: shared-models.zip
           path: models
+
+      - name: Filter HN-SEP models by variant
+        shell: bash
+        run: |
+          if [[ "${{ matrix.variant }}" == "cpu" ]]; then
+            rm -f models/hnsep/model_fp16.onnx
+            echo "CPU package: keeping only model_fp32_slim.onnx for HN-SEP"
+          else
+            echo "Non-CPU package: keeping model_fp32_slim.onnx + model_fp16.onnx for HN-SEP"
+          fi
+          ls -lh models/hnsep || true
 
       - name: Cache ORT libraries
         id: cache-ort
@@ -363,19 +385,35 @@ jobs:
           [ -d webui ] && cp -r webui "$out/webui"
           [ -d models ] && cp -r models "$out/models"
 
-      # Upload the assembled directory (NO zip/tar — upload-artifact wraps it)
+      - name: Create package archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = "dist/${{ matrix.artifact }}.zip"
+          Compress-Archive -Path "dist/${{ matrix.artifact }}/*" -DestinationPath $archive -Force
+
+      - name: Create package archive (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          tar -C "dist/${{ matrix.artifact }}" -czf "dist/${{ matrix.artifact }}.tar.gz" .
+
+      # Upload packaged archive file with extension
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.artifact }}/
+          name: ${{ matrix.artifact }}.zip
+          path: |
+            dist/${{ matrix.artifact }}.zip
+            dist/${{ matrix.artifact }}.tar.gz
+          if-no-files-found: error
 
       # Upload installer (Windows only)
       - name: Upload installer artifact
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}-installer
+          name: ${{ matrix.artifact }}-installer.zip
           path: installer/output/*.exe
 
   # ────────────────────────── Release ──────────────────────────
@@ -400,8 +438,9 @@ jobs:
           for dir in */; do
             name="${dir%/}"
 
-            # Skip build-stage binary artifacts
+            # Skip non-release artifacts
             [[ "$name" == binaries-* ]] && continue
+            [[ "$name" == shared-models ]] && continue
 
             # Installer exes — copy directly
             if [[ "$name" == *-installer ]]; then
@@ -409,12 +448,9 @@ jobs:
               continue
             fi
 
-            # Portable packages — create archive
-            if [[ "$name" == *windows* ]]; then
-              (cd "$name" && zip -r "../../release_assets/${name}.zip" .)
-            else
-              tar -C "$name" -czf "../release_assets/${name}.tar.gz" .
-            fi
+            # Portable package archives were already created in package job
+            cp "$name"/*.zip ../release_assets/ 2>/dev/null || true
+            cp "$name"/*.tar.gz ../release_assets/ 2>/dev/null || true
           done
           echo "=== Release assets ==="
           ls -lh ../release_assets/

@@ -530,36 +530,30 @@ pub fn loudness_normalize(
     let gain = 10f64.powf(gain_db / 20.0) as f32;
 
     if !trim_silence || (trim_start == 0 && trim_end >= original_length) {
-        // No trimming — straightforward gain
-        let mut out: Vec<f32> = audio.iter().map(|&x| x * gain).collect();
-        // Truncate if we padded
-        out.truncate(original_length);
-        return out;
+        // No trimming — apply envelope-aware gain to the whole signal
+        return apply_envelope_aware_gain(audio, gain, sample_rate);
     }
 
-    // Trimming was applied — reconstruct with crossfade (matching Python)
+    // Trimming was applied — reconstruct with envelope-aware crossfade
     let mut output = vec![0.0f32; original_length];
     let available_length = (trim_end - trim_start).min(original_length - trim_start);
 
-    // Fade-out window at the tail (200 ms or 1/4 of available length)
-    let fade_length = ((sample_rate as f64 * 0.2) as usize).min(available_length / 4);
+    // Apply envelope-aware gain to the voiced region.
+    // Instead of a uniform gain + hard fade-out, we detect where the
+    // sustained voicing ends (RMS drops > 10 dB below sustained peak)
+    // and smoothly blend gain → 1.0. This prevents breath tails
+    // from being over-amplified.
+    let voiced_region = &audio[trim_start..trim_start + available_length];
+    let gained_region = apply_envelope_aware_gain(voiced_region, gain, sample_rate);
+    output[trim_start..trim_start + available_length]
+        .copy_from_slice(&gained_region[..available_length]);
 
-    for i in 0..available_length {
-        let mut fade = 1.0f32;
-        if fade_length > 0 && i >= available_length - fade_length {
-            let pos = i - (available_length - fade_length);
-            fade = 1.0 - pos as f32 / fade_length as f32;
-        }
-        output[trim_start + i] = audio[trim_start + i] * gain * fade;
-    }
-
-    // Crossfade remaining tail from original audio (NO gain — matches Python)
-    // The tail is the quiet/silent part after the voiced region;
-    // applying loudness-normalization gain here would over-amplify it.
+    // Fill remaining tail from original audio (no gain)
     let remain_start = trim_start + available_length;
     if remain_start < original_length {
         let remain_length = original_length - remain_start;
-        let crossfade_length = fade_length.min(remain_length);
+        // Short crossfade (200 ms) from the gained boundary to original
+        let crossfade_length = ((sample_rate as f64 * 0.2) as usize).min(remain_length);
         for i in 0..remain_length {
             let fade_in = if crossfade_length > 0 && i < crossfade_length {
                 i as f32 / crossfade_length as f32
@@ -568,6 +562,134 @@ pub fn loudness_normalize(
             };
             output[remain_start + i] = audio[remain_start + i] * fade_in;
         }
+    }
+
+    output
+}
+
+/// Apply gain with envelope-awareness: full gain on sustained portions,
+/// smooth blend to 1.0 (no gain) where the RMS drops.
+///
+/// This prevents breath tails and natural decays from being over-amplified
+/// by loudness normalization. The approach:
+///   1. Compute per-frame RMS (20 ms window, 10 ms hop)
+///   2. Find the "sustained" RMS level (90th percentile of non-silent frames)
+///   3. Where the RMS drops below sustained_level - 10 dB, start reducing gain
+///   4. The effective gain blends from `target_gain` to 1.0 based on how far
+///      below the sustained level the current RMS is
+fn apply_envelope_aware_gain(audio: &[f32], target_gain: f32, sample_rate: u32) -> Vec<f32> {
+    if audio.is_empty() {
+        return Vec::new();
+    }
+
+    // If gain is close to 1.0, nothing to do
+    if (target_gain - 1.0).abs() < 0.01 {
+        return audio.to_vec();
+    }
+
+    let frame_len = (sample_rate as f64 * 0.02) as usize; // 20 ms
+    let hop_len = (sample_rate as f64 * 0.01) as usize; // 10 ms
+
+    if audio.len() < frame_len || hop_len == 0 {
+        return audio.iter().map(|&x| x * target_gain).collect();
+    }
+
+    // Compute per-frame RMS in dB
+    let mut frame_rms: Vec<f64> = Vec::new();
+    let mut pos = 0;
+    while pos + frame_len <= audio.len() {
+        let frame = &audio[pos..pos + frame_len];
+        let ms: f64 = frame.iter().map(|&x| (x as f64) * (x as f64)).sum::<f64>()
+            / frame_len as f64;
+        let rms = ms.sqrt();
+        let db = if rms < 1e-10 {
+            -100.0
+        } else {
+            20.0 * rms.log10()
+        };
+        frame_rms.push(db);
+        pos += hop_len;
+    }
+
+    if frame_rms.is_empty() {
+        return audio.iter().map(|&x| x * target_gain).collect();
+    }
+
+    // Find sustained level: 90th percentile of non-silent frames
+    let mut non_silent: Vec<f64> = frame_rms.iter()
+        .copied()
+        .filter(|&db| db > -60.0)
+        .collect();
+
+    if non_silent.is_empty() {
+        // Everything is silent — apply uniform gain
+        return audio.iter().map(|&x| x * target_gain).collect();
+    }
+
+    non_silent.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let p90_idx = (non_silent.len() as f64 * 0.9) as usize;
+    let p90_idx = p90_idx.min(non_silent.len() - 1);
+    let sustained_db = non_silent[p90_idx];
+
+    // Gain blend parameters:
+    //   - Above (sustained_db - fade_start_db): full gain
+    //   - Below (sustained_db - fade_end_db): gain = 1.0 (no boost/cut)
+    //   - In between: linear blend
+    let fade_start_db = 10.0; // start fading gain when RMS drops 10 dB below sustained
+    let fade_end_db = 20.0;   // fully at gain=1.0 when RMS drops 20 dB below sustained
+    let threshold_high = sustained_db - fade_start_db;
+    let threshold_low = sustained_db - fade_end_db;
+    let db_range = threshold_high - threshold_low;
+
+    // Build per-frame gain envelope
+    let mut frame_gains: Vec<f32> = Vec::with_capacity(frame_rms.len());
+    for &db in &frame_rms {
+        let blend = if db >= threshold_high {
+            1.0 // full target_gain
+        } else if db <= threshold_low {
+            0.0 // gain = 1.0 (no boost)
+        } else {
+            ((db - threshold_low) / db_range) as f32
+        };
+        // Effective gain: blend between 1.0 and target_gain
+        let effective_gain = 1.0 + (target_gain - 1.0) * blend;
+        frame_gains.push(effective_gain);
+    }
+
+    // Smooth the gain envelope (moving average, 50 ms window) to avoid artifacts
+    let smooth_frames = ((sample_rate as f64 * 0.05) / hop_len as f64).round() as usize;
+    let smooth_frames = smooth_frames.max(1);
+    let smoothed_gains = if smooth_frames > 1 && frame_gains.len() > smooth_frames {
+        let mut smoothed = vec![0.0f32; frame_gains.len()];
+        let half = smooth_frames / 2;
+        for i in 0..frame_gains.len() {
+            let start = i.saturating_sub(half);
+            let end = (i + half + 1).min(frame_gains.len());
+            let sum: f32 = frame_gains[start..end].iter().sum();
+            smoothed[i] = sum / (end - start) as f32;
+        }
+        smoothed
+    } else {
+        frame_gains
+    };
+
+    // Apply per-sample gain by interpolating the frame-level envelope
+    let mut output = vec![0.0f32; audio.len()];
+    for i in 0..audio.len() {
+        // Map sample index to frame index (with linear interpolation)
+        let frame_pos = i as f64 / hop_len as f64;
+        let frame_idx = frame_pos as usize;
+        let frac = (frame_pos - frame_idx as f64) as f32;
+
+        let g = if frame_idx + 1 < smoothed_gains.len() {
+            smoothed_gains[frame_idx] * (1.0 - frac) + smoothed_gains[frame_idx + 1] * frac
+        } else if frame_idx < smoothed_gains.len() {
+            smoothed_gains[frame_idx]
+        } else {
+            *smoothed_gains.last().unwrap_or(&target_gain)
+        };
+
+        output[i] = audio[i] * g;
     }
 
     output

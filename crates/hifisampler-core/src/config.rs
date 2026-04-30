@@ -60,6 +60,18 @@ pub struct ProcessingConfig {
     /// Frames below this are considered silent (default: −52.0 dB).
     #[serde(default = "default_silence_threshold")]
     pub silence_threshold: f64,
+    /// Maximum positive gain (dB) allowed during loudness normalization.
+    /// Prevents very quiet tails/noise from being boosted too aggressively.
+    #[serde(default = "default_wave_norm_max_boost_db")]
+    pub wave_norm_max_boost_db: f64,
+    /// Low-level protection threshold (dBFS RMS) for envelope-aware gain.
+    /// Frames below this threshold gradually blend gain back to 1.0.
+    #[serde(default = "default_wave_norm_low_level_protect_db")]
+    pub wave_norm_low_level_protect_db: f64,
+    /// Tail local hard-limit threshold in dBFS.
+    /// Applied only on low-level frames during loudness normalization.
+    #[serde(default = "default_wave_norm_tail_peak_limit_dbfs")]
+    pub wave_norm_tail_peak_limit_dbfs: f64,
     #[serde(default)]
     pub loop_mode: bool,
     #[serde(default = "default_peak_limit")]
@@ -138,6 +150,15 @@ fn default_hnsep_model() -> PathBuf {
 fn default_silence_threshold() -> f64 {
     -52.0
 }
+fn default_wave_norm_max_boost_db() -> f64 {
+    18.0
+}
+fn default_wave_norm_low_level_protect_db() -> f64 {
+    -40.0
+}
+fn default_wave_norm_tail_peak_limit_dbfs() -> f64 {
+    -6.0
+}
 fn default_peak_limit() -> f32 {
     1.0
 }
@@ -204,6 +225,9 @@ impl Default for ProcessingConfig {
             wave_norm: false,
             wave_norm_clip_silence: true,
             silence_threshold: default_silence_threshold(),
+            wave_norm_max_boost_db: default_wave_norm_max_boost_db(),
+            wave_norm_low_level_protect_db: default_wave_norm_low_level_protect_db(),
+            wave_norm_tail_peak_limit_dbfs: default_wave_norm_tail_peak_limit_dbfs(),
             loop_mode: false,
             peak_limit: default_peak_limit(),
         }

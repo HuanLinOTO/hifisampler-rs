@@ -487,6 +487,9 @@ pub fn loudness_normalize(
     strength: f64,
     trim_silence: bool,
     silence_threshold_db: f64,
+    max_boost_db: f64,
+    low_level_protect_db: f64,
+    tail_peak_limit_dbfs: f64,
 ) -> Vec<f32> {
     if audio.is_empty() || strength < 0.01 {
         return audio.to_vec();
@@ -526,12 +529,21 @@ pub fn loudness_normalize(
     // Strength-blended target (matches Python):
     //   final_loudness = current + (target - current) * strength / 100
     let final_lufs = current_lufs + (target_lufs - current_lufs) * strength / 100.0;
-    let gain_db = final_lufs - current_lufs;
+    let mut gain_db = final_lufs - current_lufs;
+    if gain_db > max_boost_db {
+        gain_db = max_boost_db;
+    }
     let gain = 10f64.powf(gain_db / 20.0) as f32;
 
     if !trim_silence || (trim_start == 0 && trim_end >= original_length) {
         // No trimming — apply envelope-aware gain to the whole signal
-        return apply_envelope_aware_gain(audio, gain, sample_rate);
+        return apply_envelope_aware_gain(
+            audio,
+            gain,
+            sample_rate,
+            low_level_protect_db,
+            tail_peak_limit_dbfs,
+        );
     }
 
     // Trimming was applied — reconstruct with envelope-aware crossfade
@@ -544,7 +556,13 @@ pub fn loudness_normalize(
     // and smoothly blend gain → 1.0. This prevents breath tails
     // from being over-amplified.
     let voiced_region = &audio[trim_start..trim_start + available_length];
-    let gained_region = apply_envelope_aware_gain(voiced_region, gain, sample_rate);
+    let gained_region = apply_envelope_aware_gain(
+        voiced_region,
+        gain,
+        sample_rate,
+        low_level_protect_db,
+        tail_peak_limit_dbfs,
+    );
     output[trim_start..trim_start + available_length]
         .copy_from_slice(&gained_region[..available_length]);
 
@@ -577,7 +595,13 @@ pub fn loudness_normalize(
 ///   3. Where the RMS drops below sustained_level - 10 dB, start reducing gain
 ///   4. The effective gain blends from `target_gain` to 1.0 based on how far
 ///      below the sustained level the current RMS is
-fn apply_envelope_aware_gain(audio: &[f32], target_gain: f32, sample_rate: u32) -> Vec<f32> {
+fn apply_envelope_aware_gain(
+    audio: &[f32],
+    target_gain: f32,
+    sample_rate: u32,
+    low_level_protect_db: f64,
+    tail_peak_limit_dbfs: f64,
+) -> Vec<f32> {
     if audio.is_empty() {
         return Vec::new();
     }
@@ -636,7 +660,7 @@ fn apply_envelope_aware_gain(audio: &[f32], target_gain: f32, sample_rate: u32) 
     //   - Below (sustained_db - fade_end_db): gain = 1.0 (no boost/cut)
     //   - In between: linear blend
     let fade_start_db = 10.0; // start fading gain when RMS drops 10 dB below sustained
-    let fade_end_db = 20.0;   // fully at gain=1.0 when RMS drops 20 dB below sustained
+    let fade_end_db = 20.0; // fully at gain=1.0 when RMS drops 20 dB below sustained
     let threshold_high = sustained_db - fade_start_db;
     let threshold_low = sustained_db - fade_end_db;
     let db_range = threshold_high - threshold_low;
@@ -652,7 +676,12 @@ fn apply_envelope_aware_gain(audio: &[f32], target_gain: f32, sample_rate: u32) 
             ((db - threshold_low) / db_range) as f32
         };
         // Effective gain: blend between 1.0 and target_gain
-        let effective_gain = 1.0 + (target_gain - 1.0) * blend;
+        let mut effective_gain = 1.0 + (target_gain - 1.0) * blend;
+        // Absolute low-level protection for boost-only case:
+        // when frame RMS is below configured threshold, avoid boosting tails/noise.
+        if target_gain > 1.0 && db <= low_level_protect_db {
+            effective_gain = effective_gain.min(1.0);
+        }
         frame_gains.push(effective_gain);
     }
 
@@ -673,6 +702,8 @@ fn apply_envelope_aware_gain(audio: &[f32], target_gain: f32, sample_rate: u32) 
         frame_gains
     };
 
+    let tail_peak_limit = 10f64.powf(tail_peak_limit_dbfs / 20.0) as f32;
+
     // Apply per-sample gain by interpolating the frame-level envelope
     let mut output = vec![0.0f32; audio.len()];
     for i in 0..audio.len() {
@@ -689,7 +720,27 @@ fn apply_envelope_aware_gain(audio: &[f32], target_gain: f32, sample_rate: u32) 
             *smoothed_gains.last().unwrap_or(&target_gain)
         };
 
-        output[i] = audio[i] * g;
+        let mut y = audio[i] * g;
+
+        // Local tail peak limit (dBFS) on low-level frames only.
+        // This is an engineering safeguard so tails never jump out unexpectedly.
+        if target_gain > 1.0 {
+            let db = if frame_idx + 1 < frame_rms.len() {
+                frame_rms[frame_idx] * (1.0 - frac as f64) + frame_rms[frame_idx + 1] * frac as f64
+            } else if frame_idx < frame_rms.len() {
+                frame_rms[frame_idx]
+            } else {
+                *frame_rms.last().unwrap_or(&-100.0)
+            };
+
+            if db <= low_level_protect_db {
+                if tail_peak_limit > 0.0 {
+                    y = y.clamp(-tail_peak_limit, tail_peak_limit);
+                }
+            }
+        }
+
+        output[i] = y;
     }
 
     output

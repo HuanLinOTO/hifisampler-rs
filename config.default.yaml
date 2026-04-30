@@ -26,6 +26,9 @@ processing:
   wave_norm: false
   wave_norm_clip_silence: true
   silence_threshold: -52.0
+  wave_norm_max_boost_db: 18.0
+  wave_norm_low_level_protect_db: -40.0
+  wave_norm_tail_peak_limit_dbfs: -6.0
   loop_mode: false
   peak_limit: 1.0
 

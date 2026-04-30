@@ -354,6 +354,9 @@ pub fn resample(
                 flags.p as f64,
                 config.processing.wave_norm_clip_silence,
                 config.processing.silence_threshold,
+                config.processing.wave_norm_max_boost_db,
+                config.processing.wave_norm_low_level_protect_db,
+                config.processing.wave_norm_tail_peak_limit_dbfs,
             );
         }
     }

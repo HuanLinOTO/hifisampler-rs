@@ -29,6 +29,7 @@ processing:
   wave_norm_max_boost_db: 18.0
   wave_norm_low_level_protect_db: -40.0
   wave_norm_tail_peak_limit_dbfs: -6.0
+  wave_norm_tail_mode: preserve_relative
   loop_mode: false
   peak_limit: 1.0
 

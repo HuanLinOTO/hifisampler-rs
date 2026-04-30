@@ -3,6 +3,7 @@
 //! Handles WAV reading/writing, resampling, dynamic range compression,
 //! loudness normalization, and tension filtering.
 
+use crate::config::WaveNormTailMode;
 use anyhow::{Context, Result};
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use num_complex::Complex;
@@ -490,6 +491,7 @@ pub fn loudness_normalize(
     max_boost_db: f64,
     low_level_protect_db: f64,
     tail_peak_limit_dbfs: f64,
+    tail_mode: WaveNormTailMode,
 ) -> Vec<f32> {
     if audio.is_empty() || strength < 0.01 {
         return audio.to_vec();
@@ -535,54 +537,18 @@ pub fn loudness_normalize(
     }
     let gain = 10f64.powf(gain_db / 20.0) as f32;
 
-    if !trim_silence || (trim_start == 0 && trim_end >= original_length) {
-        // No trimming — apply envelope-aware gain to the whole signal
-        return apply_envelope_aware_gain(
-            audio,
-            gain,
-            sample_rate,
-            low_level_protect_db,
-            tail_peak_limit_dbfs,
-        );
-    }
+    let _ = (trim_start, trim_end, original_length);
 
-    // Trimming was applied — reconstruct with envelope-aware crossfade
-    let mut output = vec![0.0f32; original_length];
-    let available_length = (trim_end - trim_start).min(original_length - trim_start);
-
-    // Apply envelope-aware gain to the voiced region.
-    // Instead of a uniform gain + hard fade-out, we detect where the
-    // sustained voicing ends (RMS drops > 10 dB below sustained peak)
-    // and smoothly blend gain → 1.0. This prevents breath tails
-    // from being over-amplified.
-    let voiced_region = &audio[trim_start..trim_start + available_length];
-    let gained_region = apply_envelope_aware_gain(
-        voiced_region,
+    // Silence trimming is only used for LUFS measurement. The gain envelope is
+    // applied to the full signal so the body-to-tail relationship stays smooth.
+    apply_envelope_aware_gain(
+        audio,
         gain,
         sample_rate,
         low_level_protect_db,
         tail_peak_limit_dbfs,
-    );
-    output[trim_start..trim_start + available_length]
-        .copy_from_slice(&gained_region[..available_length]);
-
-    // Fill remaining tail from original audio (no gain)
-    let remain_start = trim_start + available_length;
-    if remain_start < original_length {
-        let remain_length = original_length - remain_start;
-        // Short crossfade (200 ms) from the gained boundary to original
-        let crossfade_length = ((sample_rate as f64 * 0.2) as usize).min(remain_length);
-        for i in 0..remain_length {
-            let fade_in = if crossfade_length > 0 && i < crossfade_length {
-                i as f32 / crossfade_length as f32
-            } else {
-                1.0
-            };
-            output[remain_start + i] = audio[remain_start + i] * fade_in;
-        }
-    }
-
-    output
+        tail_mode,
+    )
 }
 
 /// Apply gain with envelope-awareness: full gain on sustained portions,
@@ -601,6 +567,7 @@ fn apply_envelope_aware_gain(
     sample_rate: u32,
     low_level_protect_db: f64,
     tail_peak_limit_dbfs: f64,
+    tail_mode: WaveNormTailMode,
 ) -> Vec<f32> {
     if audio.is_empty() {
         return Vec::new();
@@ -657,10 +624,13 @@ fn apply_envelope_aware_gain(
 
     // Gain blend parameters:
     //   - Above (sustained_db - fade_start_db): full gain
-    //   - Below (sustained_db - fade_end_db): gain = 1.0 (no boost/cut)
+    //   - Below (sustained_db - fade_end_db): keep a reduced amount of the
+    //     normalization gain so the tail still follows the body naturally.
     //   - In between: linear blend
-    let fade_start_db = 10.0; // start fading gain when RMS drops 10 dB below sustained
-    let fade_end_db = 20.0; // fully at gain=1.0 when RMS drops 20 dB below sustained
+    let (fade_start_db, fade_end_db, tail_gain_floor_ratio) = match tail_mode {
+        WaveNormTailMode::PreserveRelative => (8.0, 24.0, 0.45f32),
+        WaveNormTailMode::LegacyProtect => (10.0, 20.0, 0.0f32),
+    };
     let threshold_high = sustained_db - fade_start_db;
     let threshold_low = sustained_db - fade_end_db;
     let db_range = threshold_high - threshold_low;
@@ -671,16 +641,20 @@ fn apply_envelope_aware_gain(
         let blend = if db >= threshold_high {
             1.0 // full target_gain
         } else if db <= threshold_low {
-            0.0 // gain = 1.0 (no boost)
+            tail_gain_floor_ratio
         } else {
-            ((db - threshold_low) / db_range) as f32
+            let relative = ((db - threshold_low) / db_range) as f32;
+            tail_gain_floor_ratio + (1.0 - tail_gain_floor_ratio) * relative
         };
         // Effective gain: blend between 1.0 and target_gain
         let mut effective_gain = 1.0 + (target_gain - 1.0) * blend;
         // Absolute low-level protection for boost-only case:
-        // when frame RMS is below configured threshold, avoid boosting tails/noise.
+        // when frame RMS is below configured threshold, stop the tail from taking
+        // the full boost, but keep part of the added gain so the tail is not
+        // disconnected from the sustained body.
         if target_gain > 1.0 && db <= low_level_protect_db {
-            effective_gain = effective_gain.min(1.0);
+            let protected_gain = 1.0 + (target_gain - 1.0) * tail_gain_floor_ratio;
+            effective_gain = effective_gain.min(protected_gain);
         }
         frame_gains.push(effective_gain);
     }
@@ -1010,4 +984,136 @@ pub fn akima_interp_f64(x_old: &[f64], y_old: &[f64], x_new: &[f64]) -> Vec<f64>
             a + t * (b + t * (c + t * d))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::loudness_normalize;
+    use crate::config::WaveNormTailMode;
+
+    const SAMPLE_RATE: u32 = 44_100;
+
+    fn rms_db(signal: &[f32]) -> f64 {
+        let mean_square = signal
+            .iter()
+            .map(|&sample| (sample as f64) * (sample as f64))
+            .sum::<f64>()
+            / signal.len().max(1) as f64;
+
+        if mean_square <= 1e-20 {
+            f64::NEG_INFINITY
+        } else {
+            10.0 * mean_square.log10()
+        }
+    }
+
+    fn synthetic_voice_with_breath_tail() -> Vec<f32> {
+        let total_samples = SAMPLE_RATE as usize;
+        let body_len = (SAMPLE_RATE as f32 * 0.7) as usize;
+        let tail_len = total_samples - body_len;
+
+        let mut signal = Vec::with_capacity(total_samples);
+        for index in 0..body_len {
+            let phase = 2.0 * std::f32::consts::PI * 440.0 * index as f32 / SAMPLE_RATE as f32;
+            signal.push(0.12 * phase.sin());
+        }
+
+        for index in 0..tail_len {
+            let t = index as f32 / SAMPLE_RATE as f32;
+            let phase = 2.0 * std::f32::consts::PI * 3_500.0 * index as f32 / SAMPLE_RATE as f32;
+            let envelope = (-(8.0 * t)).exp();
+            let modulator = 0.65 + 0.35 * (2.0 * std::f32::consts::PI * 23.0 * t).sin().abs();
+            signal.push(0.02 * envelope * modulator * phase.sin());
+        }
+
+        signal
+    }
+
+    #[test]
+    fn loudness_normalize_preserves_body_tail_balance_within_reason() {
+        let audio = synthetic_voice_with_breath_tail();
+        let body = &audio[..(SAMPLE_RATE as f32 * 0.7) as usize];
+        let tail = &audio[(SAMPLE_RATE as f32 * 0.7) as usize..];
+        let delta_before = rms_db(body) - rms_db(tail);
+
+        let normalized = loudness_normalize(
+            &audio,
+            SAMPLE_RATE,
+            -16.0,
+            0.400,
+            100.0,
+            true,
+            -52.0,
+            18.0,
+            -40.0,
+            -6.0,
+            WaveNormTailMode::PreserveRelative,
+        );
+
+        let normalized_body = &normalized[..body.len()];
+        let normalized_tail = &normalized[body.len()..];
+        let delta_after = rms_db(normalized_body) - rms_db(normalized_tail);
+
+        assert!(
+            delta_after - delta_before <= 6.0,
+            "body-tail loudness gap changed too much: before={delta_before:.2} dB after={delta_after:.2} dB"
+        );
+    }
+
+    #[test]
+    fn loudness_normalize_does_not_hard_clip_tail_when_boosting() {
+        let audio = synthetic_voice_with_breath_tail();
+        let normalized = loudness_normalize(
+            &audio,
+            SAMPLE_RATE,
+            -16.0,
+            0.400,
+            100.0,
+            false,
+            -52.0,
+            18.0,
+            -40.0,
+            -6.0,
+            WaveNormTailMode::PreserveRelative,
+        );
+
+        let tail = &normalized[(SAMPLE_RATE as f32 * 0.7) as usize..];
+        let tail_peak = tail.iter().fold(0.0f32, |peak, &sample| peak.max(sample.abs()));
+
+        assert!(
+            tail_peak < 0.48,
+            "tail peak unexpectedly hit hard limiter boundary: {tail_peak:.3}"
+        );
+    }
+
+    #[test]
+    fn legacy_tail_mode_keeps_previous_stronger_separation() {
+        let audio = synthetic_voice_with_breath_tail();
+        let body = &audio[..(SAMPLE_RATE as f32 * 0.7) as usize];
+        let tail = &audio[(SAMPLE_RATE as f32 * 0.7) as usize..];
+        let delta_before = rms_db(body) - rms_db(tail);
+
+        let normalized = loudness_normalize(
+            &audio,
+            SAMPLE_RATE,
+            -16.0,
+            0.400,
+            100.0,
+            true,
+            -52.0,
+            18.0,
+            -40.0,
+            -6.0,
+            WaveNormTailMode::LegacyProtect,
+        );
+
+        let normalized_body = &normalized[..body.len()];
+        let normalized_tail = &normalized[body.len()..];
+        let delta_after = rms_db(normalized_body) - rms_db(normalized_tail);
+
+        assert!(
+            delta_after > delta_before,
+            "legacy mode should preserve the old stronger tail attenuation: before={delta_before:.2} dB after={delta_after:.2} dB"
+        );
+    }
 }

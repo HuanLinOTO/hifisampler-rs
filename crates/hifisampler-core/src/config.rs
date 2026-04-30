@@ -50,6 +50,13 @@ pub struct HnsepConfig {
     pub model: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WaveNormTailMode {
+    PreserveRelative,
+    LegacyProtect,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessingConfig {
     #[serde(default)]
@@ -72,6 +79,9 @@ pub struct ProcessingConfig {
     /// Applied only on low-level frames during loudness normalization.
     #[serde(default = "default_wave_norm_tail_peak_limit_dbfs")]
     pub wave_norm_tail_peak_limit_dbfs: f64,
+    /// Tail loudness handling strategy for wave normalization.
+    #[serde(default = "default_wave_norm_tail_mode")]
+    pub wave_norm_tail_mode: WaveNormTailMode,
     #[serde(default)]
     pub loop_mode: bool,
     #[serde(default = "default_peak_limit")]
@@ -159,6 +169,9 @@ fn default_wave_norm_low_level_protect_db() -> f64 {
 fn default_wave_norm_tail_peak_limit_dbfs() -> f64 {
     -6.0
 }
+fn default_wave_norm_tail_mode() -> WaveNormTailMode {
+    WaveNormTailMode::PreserveRelative
+}
 fn default_peak_limit() -> f32 {
     1.0
 }
@@ -228,6 +241,7 @@ impl Default for ProcessingConfig {
             wave_norm_max_boost_db: default_wave_norm_max_boost_db(),
             wave_norm_low_level_protect_db: default_wave_norm_low_level_protect_db(),
             wave_norm_tail_peak_limit_dbfs: default_wave_norm_tail_peak_limit_dbfs(),
+            wave_norm_tail_mode: default_wave_norm_tail_mode(),
             loop_mode: false,
             peak_limit: default_peak_limit(),
         }

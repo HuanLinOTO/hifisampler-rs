@@ -357,6 +357,7 @@ pub fn resample(
                 config.processing.wave_norm_max_boost_db,
                 config.processing.wave_norm_low_level_protect_db,
                 config.processing.wave_norm_tail_peak_limit_dbfs,
+                config.processing.wave_norm_tail_mode,
             );
         }
     }

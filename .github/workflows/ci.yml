@@ -76,6 +76,18 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
 
+      # ── Install CUDA Toolkit (CUDA variant only, for packaging runtime DLLs) ──
+      # cudarc uses dynamic loading at build time (no toolkit needed to compile),
+      # but the packaged binary needs cublas + nvrtc DLLs at runtime.
+      # We install the toolkit here just to copy those DLLs into the dist.
+      - name: Install CUDA Toolkit
+        if: matrix.variant == 'cuda'
+        uses: Jimver/cuda-toolkit@v0.2.21
+        with:
+          method: network
+          # Use CUDA 12.5 to match the development environment
+          cuda: '12.5.0'
+
       # ── Build ──
       # cudarc uses dynamic loading — no CUDA toolkit needed at build time.
       # The resulting binary loads CUDA runtime from the user's NVIDIA driver.

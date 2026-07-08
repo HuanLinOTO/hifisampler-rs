@@ -35,4 +35,5 @@ __pycache__/
 # Distribution
 /dist/
 server.log
-models/.memory/
+models/
+.memory/

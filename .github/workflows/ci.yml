@@ -122,6 +122,39 @@ jobs:
           if (Test-Path "webui") { Copy-Item -Recurse "webui" "$out/webui" }
           if (Test-Path "models") { Copy-Item -Recurse "models" "$out/models" }
 
+          # CUDA runtime DLLs (CUDA variant only)
+          # cudarc uses dynamic loading — needs cublas + nvrtc at runtime.
+          # nvcuda.dll comes from the NVIDIA driver, not packaged here.
+          if ("${{ matrix.variant }}" -eq "cuda") {
+            $cudaPaths = @(
+              "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v*\bin",
+              "C:\Program Files\NVIDIA Corporation\CUDA\v*\bin"
+            )
+            $cudaBin = $null
+            foreach ($p in $cudaPaths) {
+              $found = Get-Item $p -ErrorAction SilentlyContinue | Sort-Object -Descending | Select-Object -First 1
+              if ($found) { $cudaBin = $found.FullName; break }
+            }
+            if (-not $cudaBin) {
+              Write-Host "::warning::CUDA Toolkit not found on runner — CUDA DLLs will not be packaged"
+            } else {
+              Write-Host "Found CUDA Toolkit at: $cudaBin"
+              # Required by cudarc: cublas (matmul), nvrtc (kernel JIT compilation)
+              $requiredDlls = @(
+                "cublas64_*.dll",
+                "cublasLt64_*.dll",
+                "nvrtc64_*.dll"
+              )
+              foreach ($pattern in $requiredDlls) {
+                $dlls = Get-ChildItem "$cudaBin\$pattern" -ErrorAction SilentlyContinue
+                foreach ($dll in $dlls) {
+                  Copy-Item $dll.FullName "$out/"
+                  Write-Host "  Packaged: $($dll.Name)"
+                }
+              }
+            }
+          }
+
       # ── Build Inno Setup installer (Windows only) ──
       - name: Build installer
         if: runner.os == 'Windows'
@@ -157,6 +190,29 @@ jobs:
           # WebUI & models
           [ -d webui ] && cp -r webui "$out/webui"
           [ -d models ] && cp -r models "$out/models"
+
+          # CUDA runtime shared libs (CUDA variant only)
+          # cudarc uses dynamic loading — needs cublas + nvrtc at runtime.
+          # libcuda.so comes from the NVIDIA driver, not packaged here.
+          if [ "${{ matrix.variant }}" = "cuda" ]; then
+            cuda_lib_paths=""
+            for dir in /usr/local/cuda*/lib64 /usr/lib/cuda/lib64; do
+              if [ -d "$dir" ]; then
+                cuda_lib_paths="$dir"
+                break
+              fi
+            done
+            if [ -z "$cuda_lib_paths" ]; then
+              echo "::warning::CUDA lib dir not found — CUDA .so files will not be packaged"
+            else
+              echo "Found CUDA libs at: $cuda_lib_paths"
+              for pattern in "libcublas.so*" "libcublasLt.so*" "libnvrtc.so*"; do
+                for f in $cuda_lib_paths/$pattern; do
+                  [ -f "$f" ] && cp -P "$f" "$out/" && echo "  Packaged: $(basename $f)"
+                done
+              done
+            fi
+          fi
 
       # Upload the assembled directory
       - name: Upload package artifact

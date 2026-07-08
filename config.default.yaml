@@ -12,14 +12,14 @@ fmin: 40.0
 fmax: 16000.0
 pad_frames: 6
 
-# Vocoder model
+# Vocoder model (Burn native inference — pure Rust, no ONNX Runtime needed)
 vocoder:
-  model: models/vocoder/model.onnx
-  model_type: onnx
+  model: models/vocoder/vocoder_fused.pt
+  model_type: burn
 
-# Harmonic-Noise Separation model
+# Harmonic-Noise Separation model (Burn native inference — pure Rust, no ONNX Runtime needed)
 hnsep:
-  model: models/hnsep/model.onnx
+  model: models/hnsep/hnsep_fused.pt
 
 # Processing settings
 processing:
@@ -36,9 +36,9 @@ processing:
 # Performance settings
 performance:
   num_threads: 2
-  # Execution provider: auto, cpu, cuda, tensorrt, directml, coreml, rocm
+  # Device: auto, cpu, vulkan (Burn vocoder), or cuda/tensorrt/directml/coreml (HN-SEP ORT)
   device: auto
-  # DirectML adapter index (0-based)
+  # GPU adapter index (0-based)
   device_id: 0
 
 # Server settings

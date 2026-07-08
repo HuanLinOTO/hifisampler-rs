@@ -68,7 +68,7 @@ Name: "installbridge"; Description: "自动安装桥接程序到 OpenUTAU Resamp
 Source: "{#SourceDir}\hifisampler-server.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\hifisampler.exe"; DestDir: "{app}"; Flags: ignoreversion
 
-; ── ONNX Runtime DLLs (varies per EP variant) ──
+; ── Native DLLs (if any — Burn uses dynamic loading, usually none) ──
 Source: "{#SourceDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; ── Config ──

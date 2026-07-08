@@ -1,0 +1,1 @@
+tests/benchmark_fixtures/inputs/stereo_e4_1s_48000.wav tests/benchmark_fixtures/outputs/stereo_48k_keyshift.wav E4 115 g-20P0 0 1000 120 0 100 0 !120 AA

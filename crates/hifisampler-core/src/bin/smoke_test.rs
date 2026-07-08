@@ -23,6 +23,7 @@ fn main() -> anyhow::Result<()> {
     println!("\n[1] Loading vocoder...");
     let mut vocoder = Vocoder::load(
         &config.vocoder.model,
+        &config.vocoder.model_type,
         &config.performance.device,
         config.performance.device_id,
         config.performance.num_threads,

@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod burn;
 pub mod cache;
 pub mod config;
 pub mod ep;

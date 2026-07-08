@@ -135,7 +135,12 @@ jobs:
           if (Test-Path "models") { Copy-Item -Recurse "models" "$out/models" }
 
           # CUDA runtime DLLs (CUDA variant only)
-          # cudarc uses dynamic loading — needs cublas + nvrtc at runtime.
+          # cudarc uses dynamic loading — only needs these at runtime:
+          #   - cublas64_*.dll  (matmul, loaded by cudarc "cublas" feature)
+          #   - nvrtc64_*.dll   (kernel JIT compilation, loaded by "nvrtc" feature)
+          # NOT needed (not loaded by cubecl-cuda's cudarc features):
+          #   - cublasLt64_*.dll  (cublasLt is an optional cudarc feature, not enabled)
+          #   - nvrtc64_*.alt.dll (alternate copy, not loaded)
           # nvcuda.dll comes from the NVIDIA driver, not packaged here.
           if ("${{ matrix.variant }}" -eq "cuda") {
             $cudaPaths = @(
@@ -151,19 +156,12 @@ jobs:
               Write-Host "::warning::CUDA Toolkit not found on runner — CUDA DLLs will not be packaged"
             } else {
               Write-Host "Found CUDA Toolkit at: $cudaBin"
-              # Required by cudarc: cublas (matmul), nvrtc (kernel JIT compilation)
-              $requiredDlls = @(
-                "cublas64_*.dll",
-                "cublasLt64_*.dll",
-                "nvrtc64_*.dll"
-              )
-              foreach ($pattern in $requiredDlls) {
-                $dlls = Get-ChildItem "$cudaBin\$pattern" -ErrorAction SilentlyContinue
-                foreach ($dll in $dlls) {
-                  Copy-Item $dll.FullName "$out/"
-                  Write-Host "  Packaged: $($dll.Name)"
-                }
-              }
+              # cublas — skip cublasLt (not used by cubecl-cuda)
+              $cublas = Get-ChildItem "$cudaBin\cublas64_*.dll" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+              if ($cublas) { Copy-Item $cublas.FullName "$out/"; Write-Host "  Packaged: $($cublas.Name)" }
+              # nvrtc — skip .alt.dll (not loaded by cudarc)
+              $nvrtc = Get-ChildItem "$cudaBin\nvrtc64_*.dll" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "*.alt.dll" } | Sort-Object Name -Descending | Select-Object -First 1
+              if ($nvrtc) { Copy-Item $nvrtc.FullName "$out/"; Write-Host "  Packaged: $($nvrtc.Name)" }
             }
           }
 
@@ -204,7 +202,11 @@ jobs:
           [ -d models ] && cp -r models "$out/models"
 
           # CUDA runtime shared libs (CUDA variant only)
-          # cudarc uses dynamic loading — needs cublas + nvrtc at runtime.
+          # cudarc uses dynamic loading — only needs these at runtime:
+          #   - libcublas.so*  (matmul, loaded by cudarc "cublas" feature)
+          #   - libnvrtc.so*   (kernel JIT compilation, loaded by "nvrtc" feature)
+          # NOT needed (not loaded by cubecl-cuda's cudarc features):
+          #   - libcublasLt.so*  (cublasLt is an optional cudarc feature, not enabled)
           # libcuda.so comes from the NVIDIA driver, not packaged here.
           if [ "${{ matrix.variant }}" = "cuda" ]; then
             cuda_lib_paths=""
@@ -218,10 +220,13 @@ jobs:
               echo "::warning::CUDA lib dir not found — CUDA .so files will not be packaged"
             else
               echo "Found CUDA libs at: $cuda_lib_paths"
-              for pattern in "libcublas.so*" "libcublasLt.so*" "libnvrtc.so*"; do
-                for f in $cuda_lib_paths/$pattern; do
-                  [ -f "$f" ] && cp -P "$f" "$out/" && echo "  Packaged: $(basename $f)"
-                done
+              # cublas — copy the main .so and its symlinks, skip cublasLt
+              for f in $cuda_lib_paths/libcublas.so*; do
+                [ -f "$f" ] && cp -P "$f" "$out/" && echo "  Packaged: $(basename $f)"
+              done
+              # nvrtc
+              for f in $cuda_lib_paths/libnvrtc.so*; do
+                [ -f "$f" ] && cp -P "$f" "$out/" && echo "  Packaged: $(basename $f)"
               done
             fi
           fi

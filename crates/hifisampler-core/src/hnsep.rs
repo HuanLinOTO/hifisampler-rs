@@ -34,7 +34,7 @@ impl HnsepModel {
         let burn_device = select_burn_device(device);
         info!("[hnsep] step 2: device selected, initializing CascadedNet config");
 
-        let mut model = CascadedNetConfig::new(n_fft, hop_length, 32, 128, 2).init(&burn_device);
+        let mut model = Box::new(CascadedNetConfig::new(n_fft, hop_length, 32, 128, 2).init(&burn_device));
         info!("[hnsep] step 3: model struct created, opening PytorchStore");
 
         let mut store = burn_store::PytorchStore::from_file(&path)
@@ -42,8 +42,55 @@ impl HnsepModel {
             .allow_partial(false);
         info!("[hnsep] step 4: store ready, loading tensors");
 
-        use burn_store::ModuleSnapshot;
-        let result = model.load_from(&mut store)?;
+        // CascadedNet is ~175KB and deeply nested (5 BaseNets × 11 submodules,
+        // all fixed struct fields). burn-store's ModuleSnapshot::apply() calls
+        // Module::map(), which #[derive(Module)] generates as a recursive walk
+        // over every field — this overflows the main thread's default 1MB stack
+        // on Windows. Additionally, constructing a `move` closure that captures
+        // the 175KB model by value doubles the stack usage, also overflowing.
+        //
+        // Fix: Box the model (only 8 bytes captured), materialize tensor data
+        // on the main thread (TensorData is Send; PytorchStore/TensorSnapshot
+        // are !Send due to Rc<dyn Fn>), then run apply() on a worker thread
+        // with a 16MB stack. The Applier matches by full_path() (path_stack
+        // only); adapter context comes from the Applier's own stacks, so
+        // reconstructed snapshots with empty container_stack / dummy id work.
+        use burn_store::{ModuleSnapshot, ModuleStore, PyTorchToBurnAdapter, TensorSnapshot};
+        let snapshots: Vec<TensorSnapshot> = store.get_all_snapshots()?.values().cloned().collect();
+        let materialized: Vec<(Vec<String>, burn::tensor::TensorData)> = snapshots
+            .iter()
+            .map(|s| {
+                let path = s.path_stack.clone().unwrap_or_default();
+                let data = s.to_data().unwrap_or_else(|e| {
+                    panic!("failed to materialize tensor {}: {:?}", path.join("."), e)
+                });
+                (path, data)
+            })
+            .collect();
+        info!("[hnsep] step 4b: materialized {} tensors for cross-thread load", materialized.len());
+
+        let result = std::thread::Builder::new()
+            .name("hnsep-loader".to_string())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(move || -> (CascadedNet<VocoderBackend>, burn_store::ApplyResult) {
+                let views: Vec<TensorSnapshot> = materialized
+                    .into_iter()
+                    .map(|(path, data)| {
+                        TensorSnapshot::from_data(
+                            data,
+                            path,
+                            Vec::new(),
+                            burn::module::ParamId::new(),
+                        )
+                    })
+                    .collect();
+                let res = model.apply(views, None, Some(Box::new(PyTorchToBurnAdapter)), true);
+                (*model, res)
+            })
+            .expect("failed to spawn hnsep load thread")
+            .join()
+            .expect("hnsep load thread panicked");
+        let (model, result) = result;
         info!("[hnsep] step 5: load_from done, applied={} missing={} errors={}",
             result.applied.len(), result.missing.len(), result.errors.len());
 

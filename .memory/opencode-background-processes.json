@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "updatedAt": "2026-07-08T17:14:03.574Z",
+  "processes": [
+    {
+      "id": "task-jydi8la",
+      "name": "hifisampler-server",
+      "status": "failed",
+      "startedAt": "2026-07-08T16:57:52.745Z",
+      "sessionId": "ses_0bd5fb8e0ffeZocDWmT6KUXUuV",
+      "tags": [
+        "server"
+      ],
+      "pid": 33616,
+      "global": false
+    },
+    {
+      "id": "task-zfziug6",
+      "name": "hifisampler-server-2",
+      "status": "failed",
+      "startedAt": "2026-07-08T17:02:06.858Z",
+      "sessionId": "ses_0bd5fb8e0ffeZocDWmT6KUXUuV",
+      "tags": [
+        "server"
+      ],
+      "pid": 9808,
+      "global": false
+    },
+    {
+      "id": "task-emv72y4",
+      "name": "hifisampler-server-3",
+      "status": "failed",
+      "startedAt": "2026-07-08T17:05:20.063Z",
+      "sessionId": "ses_0bd5fb8e0ffeZocDWmT6KUXUuV",
+      "tags": [
+        "server"
+      ],
+      "pid": 30756,
+      "global": false
+    },
+    {
+      "id": "task-pskxto2",
+      "name": "hifisampler-server-4",
+      "status": "cancelled",
+      "startedAt": "2026-07-08T17:08:50.157Z",
+      "sessionId": "ses_0bd5fb8e0ffeZocDWmT6KUXUuV",
+      "tags": [
+        "server"
+      ],
+      "pid": 31148,
+      "global": false
+    },
+    {
+      "id": "task-q54miw2",
+      "name": "hifisampler-server-final",
+      "status": "failed",
+      "startedAt": "2026-07-08T17:13:11.253Z",
+      "sessionId": "ses_0bd5fb8e0ffeZocDWmT6KUXUuV",
+      "tags": [
+        "server"
+      ],
+      "pid": 36664,
+      "global": false
+    },
+    {
+      "id": "task-e3rlpcc",
+      "name": "hifisampler-server-clean",
+      "status": "failed",
+      "startedAt": "2026-07-08T17:13:56.811Z",
+      "sessionId": "ses_0bd5fb8e0ffeZocDWmT6KUXUuV",
+      "tags": [
+        "server"
+      ],
+      "pid": 32116,
+      "global": false
+    }
+  ]
+}

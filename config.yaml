@@ -1,6 +1,3 @@
-# HiFiSampler Rust Configuration (dev/test)
-# Points to actual model files in the sibling hifisampler directory
-
 sample_rate: 44100
 win_size: 2048
 hop_size: 512
@@ -10,14 +7,11 @@ n_fft: 2048
 fmin: 40.0
 fmax: 16000.0
 pad_frames: 6
-
 vocoder:
-  model: ../hifisampler/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/model.onnx
+  model: models/vocoder/vocoder_fused.pt
   model_type: onnx
-
 hnsep:
-  model: ../hifisampler/hnsep/vr/model.onnx
-
+  model: models/hnsep/hnsep_fused.pt
 processing:
   wave_norm: false
   wave_norm_clip_silence: true
@@ -28,12 +22,10 @@ processing:
   wave_norm_tail_mode: preserve_relative
   loop_mode: false
   peak_limit: 1.0
-
 performance:
   num_threads: 2
-  device: auto
+  device: vulkan
   device_id: 0
-
 server:
-  host: "127.0.0.1"
+  host: 127.0.0.1
   port: 8572

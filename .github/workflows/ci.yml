@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ── Windows CPU (wgpu/Vulkan) ──
+          # ── Windows CPU (wgpu/WGSL — no Vulkan SDK needed) ──
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             platform: windows-x64
@@ -33,8 +33,8 @@ jobs:
             platform: windows-x64
             variant: cuda
             artifact: hifisampler-windows-x64-cuda
-            cargo_features: "--features hifisampler-core/cuda"
-          # ── Linux CPU (wgpu/Vulkan) ──
+            cargo_features: "--features hifisampler-core/cuda --no-default-features"
+          # ── Linux CPU (wgpu/WGSL) ──
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             platform: linux-x64
@@ -47,8 +47,8 @@ jobs:
             platform: linux-x64
             variant: cuda
             artifact: hifisampler-linux-x64-cuda
-            cargo_features: "--features hifisampler-core/cuda"
-          # ── macOS ARM64 (wgpu/Metal) ──
+            cargo_features: "--features hifisampler-core/cuda --no-default-features"
+          # ── macOS ARM64 (wgpu/WGSL) ──
           - os: macos-latest
             target: aarch64-apple-darwin
             platform: macos-arm64

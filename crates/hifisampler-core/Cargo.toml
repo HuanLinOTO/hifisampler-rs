@@ -8,8 +8,13 @@ default = ["wgpu"]
 # NVIDIA CUDA backend (via cudarc). Mutually exclusive with wgpu in practice —
 # pick one at build time. CI builds two binaries: one with cuda, one with wgpu.
 cuda = ["burn/cuda"]
-# wgpu/Vulkan backend — works on AMD, Intel, and NVIDIA (via Vulkan).
-wgpu = ["burn/wgpu", "burn/vulkan"]
+# wgpu backend (WGSL) — works everywhere (AMD, Intel, NVIDIA, Apple Metal).
+# Default backend uses WGSL shaders which don't require Vulkan SDK.
+wgpu = ["burn/wgpu"]
+# Vulkan backend via SPIR-V shaders — faster than WGSL on Windows/Linux but
+# requires Vulkan SDK at build time. NOT supported on macOS (use plain wgpu).
+# Enable with: --features hifisampler-core/vulkan
+vulkan = ["burn/vulkan"]
 
 [dependencies]
 anyhow.workspace = true

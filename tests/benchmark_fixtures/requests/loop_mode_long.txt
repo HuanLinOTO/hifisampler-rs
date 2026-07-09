@@ -1,0 +1,1 @@
+tests/benchmark_fixtures/inputs/long_phrase_4s_44100_mono.wav tests/benchmark_fixtures/outputs/loop_mode_long.wav D4 85 HeP0 0 5000 400 0 100 0 !110 AAEAAAgAAP//AAQA

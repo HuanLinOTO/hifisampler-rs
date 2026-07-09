@@ -1,0 +1,15 @@
+HiFiSampler benchmark fixtures
+
+Inputs:
+  steady_a4_1s_44100_mono.wav
+  expressive_c4_2s_44100_mono.wav
+  stereo_e4_1s_48000.wav
+  long_phrase_4s_44100_mono.wav
+
+Requests:
+  baseline_short.txt
+  cache_repeat_short.txt
+  postprocess_ap_hg.txt
+  hnsep_tension.txt
+  loop_mode_long.txt
+  stereo_48k_keyshift.txt

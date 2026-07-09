@@ -3,6 +3,11 @@ edition.workspace = true
 name = "hifisampler-server"
 version.workspace = true
 
+[features]
+# Default backend is wgpu for local development.
+# CI overrides with: --no-default-features --features hifisampler-core/<backend>
+default = ["hifisampler-core/wgpu"]
+
 [[bin]]
 name = "hifisampler-server"
 path = "src/main.rs"
@@ -11,7 +16,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 axum.workspace = true
 clap.workspace = true
-hifisampler-core = {path = "../hifisampler-core"}
+hifisampler-core = {path = "../hifisampler-core", default-features = false}
 parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -20,7 +25,8 @@ tower-http.workspace = true
 tower.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
+wgpu = "29"
+pollster = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.10"
-windows = { version = "0.58", features = ["Win32_Graphics_Dxgi"] }

@@ -20,6 +20,7 @@ __pycache__/
 *.onnx
 *.pt
 *.ckpt
+*.bpk
 
 # Audio test files
 *.wav
@@ -35,3 +36,5 @@ __pycache__/
 # Distribution
 /dist/
 server.log
+models/
+.memory/

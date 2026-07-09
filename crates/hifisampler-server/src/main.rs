@@ -94,19 +94,19 @@ struct DebugBridgeCall {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct DmlAdapterInfo {
+struct GpuAdapterInfo {
     id: i32,
     name: String,
     vendor_id: u32,
     device_id: u32,
-    dedicated_video_memory: u64,
+    device_type: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 struct CapabilitiesResponse {
     available_devices: Vec<String>,
     available_eps_raw: Vec<String>,
-    dml_adapters: Vec<DmlAdapterInfo>,
+    gpu_adapters: Vec<GpuAdapterInfo>,
 }
 
 const DEBUG_BRIDGE_CALLS_MAX: usize = 50;
@@ -436,22 +436,14 @@ async fn debug_bridge_calls_reset_handler(State(state): State<AppState>) -> impl
 async fn capabilities_handler() -> impl IntoResponse {
     let caps = detect_ep_capabilities();
 
-    let dml_adapters = if caps
-        .available_devices
-        .iter()
-        .any(|d| d == "directml" || d == "dml")
-    {
-        enumerate_dml_adapters()
-    } else {
-        Vec::new()
-    };
+    let gpu_adapters = enumerate_gpu_adapters();
 
     (
         StatusCode::OK,
         axum::Json(CapabilitiesResponse {
             available_devices: caps.available_devices,
             available_eps_raw: caps.available_eps_raw,
-            dml_adapters,
+            gpu_adapters,
         }),
     )
 }
@@ -528,47 +520,33 @@ fn record_bridge_call(state: &AppState, remote: SocketAddr, args: &str) {
 }
 
 #[cfg(windows)]
-fn enumerate_dml_adapters() -> Vec<DmlAdapterInfo> {
-    use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, DXGI_ERROR_NOT_FOUND, IDXGIFactory1};
-
-    let mut adapters = Vec::new();
-
-    let Ok(factory) = (unsafe { CreateDXGIFactory1::<IDXGIFactory1>() }) else {
-        return adapters;
-    };
-
-    let mut index: u32 = 0;
-    loop {
-        match unsafe { factory.EnumAdapters1(index) } {
-            Ok(adapter) => {
-                if let Ok(desc) = unsafe { adapter.GetDesc1() } {
-                    let end = desc
-                        .Description
-                        .iter()
-                        .position(|&c| c == 0)
-                        .unwrap_or(desc.Description.len());
-                    let name = String::from_utf16_lossy(&desc.Description[..end]);
-
-                    adapters.push(DmlAdapterInfo {
-                        id: index as i32,
-                        name,
-                        vendor_id: desc.VendorId,
-                        device_id: desc.DeviceId,
-                        dedicated_video_memory: desc.DedicatedVideoMemory as u64,
-                    });
-                }
-                index += 1;
-            }
-            Err(e) if e.code().0 == DXGI_ERROR_NOT_FOUND.0 => break,
-            Err(_) => break,
-        }
-    }
-
+fn enumerate_gpu_adapters() -> Vec<GpuAdapterInfo> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN,
+        backend_options: wgpu::BackendOptions::default(),
+        flags: wgpu::InstanceFlags::default(),
+        memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+        display: None,
+    });
+    let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN));
     adapters
+        .into_iter()
+        .enumerate()
+        .map(|(i, a)| {
+            let info = a.get_info();
+            GpuAdapterInfo {
+                id: i as i32,
+                name: info.name.clone(),
+                vendor_id: info.vendor,
+                device_id: info.device,
+                device_type: format!("{:?}", info.device_type),
+            }
+        })
+        .collect()
 }
 
 #[cfg(not(windows))]
-fn enumerate_dml_adapters() -> Vec<DmlAdapterInfo> {
+fn enumerate_gpu_adapters() -> Vec<GpuAdapterInfo> {
     Vec::new()
 }
 

@@ -1,0 +1,1 @@
+tests/benchmark_fixtures/inputs/steady_a4_1s_44100_mono.wav tests/benchmark_fixtures/outputs/baseline_short.wav A4 100 P0 0 1000 100 0 100 0 !120 AA

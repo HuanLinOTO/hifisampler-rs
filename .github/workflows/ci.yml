@@ -7,36 +7,71 @@ on:
     branches: [main]
   release:
     types: [created]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
-  # Model archive (7z) from HuggingFace
-  MODELS_URL: "https://huggingface.co/SVCFusion/things/resolve/main/hifisampler-models.7z"
-  # ONNX Runtime version — must be >= 1.23.x for ort 2.0.0-rc.11
-  ORT_VERSION: "1.24.1"
+  # Burn model files on HuggingFace (individual .bpk files — Burn native format,
+  # ~20x faster load + ~50% less peak memory vs .pt). Original .pt files are
+  # converted once via the `convert-models` workflow below.
+  HF_MODELS_BASE: "https://huggingface.co/SVCFusion/things/resolve/main/hifisampler"
 
 jobs:
-  # ────────────────────────── Build (per-platform, one binary) ──────────────────────────
+  # ────────────────────────── Build + Package (per-variant) ──────────────────────────
   build:
     strategy:
       fail-fast: false
       matrix:
         include:
+          # ── CPU (NdArray backend — pure CPU, no GPU dependencies) ──
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            platform: windows-x64
-            ort_main_lib: "onnxruntime.dll"
+            backend: cpu
+            artifact: hifisampler-windows-x64-cpu
+            cargo_features: "--no-default-features --features hifisampler-core/ndarray"
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-            platform: linux-x64
-            ort_main_lib: "libonnxruntime.so"
+            backend: cpu
+            artifact: hifisampler-linux-x64-cpu
+            cargo_features: "--no-default-features --features hifisampler-core/ndarray"
           - os: macos-latest
             target: aarch64-apple-darwin
-            platform: macos-arm64
-            ort_main_lib: "libonnxruntime.dylib"
+            backend: cpu
+            artifact: hifisampler-macos-arm64-cpu
+            cargo_features: "--no-default-features --features hifisampler-core/ndarray"
+
+          # ── WebGPU (wgpu backend — Vulkan/Metal/DX12, all GPUs) ──
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            backend: webgpu
+            artifact: hifisampler-windows-x64-webgpu
+            cargo_features: "--no-default-features --features hifisampler-core/wgpu"
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            backend: webgpu
+            artifact: hifisampler-linux-x64-webgpu
+            cargo_features: "--no-default-features --features hifisampler-core/wgpu"
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            backend: webgpu
+            artifact: hifisampler-macos-arm64-webgpu
+            cargo_features: "--no-default-features --features hifisampler-core/wgpu"
+
+          # ── CUDA (NVIDIA only — fastest GPU backend) ──
+          # No macOS CUDA (Apple Silicon doesn't support NVIDIA CUDA).
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            backend: cuda
+            artifact: hifisampler-windows-x64-cuda
+            cargo_features: "--no-default-features --features hifisampler-core/cuda"
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            backend: cuda
+            artifact: hifisampler-linux-x64-cuda
+            cargo_features: "--no-default-features --features hifisampler-core/cuda"
 
     runs-on: ${{ matrix.os }}
-    name: Build (${{ matrix.platform }})
+    name: Build (${{ matrix.artifact }})
 
     steps:
       - uses: actions/checkout@v4
@@ -49,256 +84,48 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: ${{ matrix.target }}-${{ matrix.backend }}
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
 
+      # ── Install CUDA Toolkit (CUDA backend only, for packaging runtime DLLs) ──
+      # cudarc uses dynamic loading at build time (no toolkit needed to compile),
+      # but the packaged binary needs cublas + nvrtc DLLs at runtime.
+      # We install the toolkit here just to copy those DLLs into the dist.
+      - name: Install CUDA Toolkit
+        if: matrix.backend == 'cuda'
+        uses: Jimver/cuda-toolkit@v0.2.21
+        with:
+          method: network
+          # Use CUDA 12.5 to match the development environment
+          cuda: '12.5.0'
+
+      # ── Build ──
+      # cudarc uses dynamic loading — no CUDA toolkit needed at build time.
+      # The resulting binary loads CUDA runtime from the user's NVIDIA driver.
       - name: Build (release)
-        run: cargo build --release --target ${{ matrix.target }}
-
-      # Download CPU ORT just for running tests
-      - name: Download ORT for tests
         shell: bash
         run: |
-          mkdir -p ort_test_lib
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            url="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-win-x64-${ORT_VERSION}.zip"
-          elif [[ "${{ runner.os }}" == "Linux" ]]; then
-            url="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
-          else
-            url="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-arm64-${ORT_VERSION}.tgz"
-          fi
-          echo "Downloading ORT from $url..."
-          curl -fSL --retry 3 "$url" -o ort_archive
-          if [[ "$url" == *.zip ]]; then
-            unzip -q ort_archive -d ort_extract
-          else
-            mkdir -p ort_extract && tar xzf ort_archive -C ort_extract
-          fi
-          find ort_extract -name "${{ matrix.ort_main_lib }}" -exec cp {} ort_test_lib/ \;
-          ls -lh ort_test_lib/
+          cargo build --release --target ${{ matrix.target }} ${{ matrix.cargo_features }}
 
-      - name: Run unit tests
-        shell: bash
-        env:
-          ORT_DYLIB_PATH: ${{ github.workspace }}/ort_test_lib/${{ matrix.ort_main_lib }}
-        run: cargo test --release --target ${{ matrix.target }}
-
-      # Collect binaries for upload
-      - name: Collect binaries
-        shell: bash
-        run: |
-          mkdir -p upload_bin
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cp "target/${{ matrix.target }}/release/hifisampler.exe"        upload_bin/
-            cp "target/${{ matrix.target }}/release/hifisampler-server.exe" upload_bin/
-          else
-            cp "target/${{ matrix.target }}/release/hifisampler"        upload_bin/
-            cp "target/${{ matrix.target }}/release/hifisampler-server" upload_bin/
-          fi
-          ls -lh upload_bin/
-
-      # Upload compiled binaries for packaging stage
-      - name: Upload compiled binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: binaries-${{ matrix.platform }}
-          path: upload_bin/
-
-  # ────────────────────────── Package (per-EP variant) ──────────────────────────
-  prepare-models:
-    runs-on: ubuntu-24.04
-    name: Prepare shared models
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Cache shared models
-        id: cache-models
-        uses: actions/cache@v4
-        with:
-          path: models
-          key: shared-models-v1
-
+      # ── Download Burn model files from HuggingFace ──
       - name: Download models
-        if: steps.cache-models.outputs.cache-hit != 'true'
         shell: bash
         run: |
-          echo "Downloading model archive from HuggingFace..."
-          curl -fSL --retry 3 "$MODELS_URL" -o hifisampler-models.7z || {
-            echo "::warning::Model archive download failed, using empty models directory"
-            mkdir -p models
-            exit 0
-          }
-
-          # Extract 7z archive
-          if command -v 7z &>/dev/null; then
-            7z x hifisampler-models.7z -omodels_extract -y
-          elif command -v 7zz &>/dev/null; then
-            7zz x hifisampler-models.7z -omodels_extract -y
-          else
-            sudo apt-get update && sudo apt-get install -y p7zip-full
-            7z x hifisampler-models.7z -omodels_extract -y
-          fi
-
-          # Map extracted directories to expected structure
           mkdir -p models/vocoder models/hnsep
-          if [ -f "models_extract/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/model.onnx" ]; then
-            cp "models_extract/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/model.onnx" models/vocoder/model.onnx
-            echo "✓ Vocoder model copied"
-          else
-            echo "::warning::Vocoder model.onnx not found in archive"
-          fi
-          if [ -f "models_extract/vr/model.onnx" ]; then
-            cp "models_extract/vr/model.onnx" models/hnsep/model.onnx
-            echo "✓ HN-SEP model copied"
-          elif [ -f "models_extract/vr/model.pt" ]; then
-            echo "::warning::Only model.pt found for HN-SEP (no ONNX), skipping"
-          else
-            echo "::warning::HN-SEP model not found in archive"
-          fi
-          ls -lhR models/ || true
+          echo "Downloading vocoder_fused.bpk..."
+          curl -fSL --retry 3 "$HF_MODELS_BASE/vocoder_fused.bpk" -o models/vocoder/vocoder_fused.bpk
+          echo "Downloading hnsep_fused.bpk..."
+          curl -fSL --retry 3 "$HF_MODELS_BASE/hnsep_fused.bpk" -o models/hnsep/hnsep_fused.bpk
+          ls -lhR models/
 
-      - name: Upload shared models artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: shared-models
-          path: models/
-          if-no-files-found: warn
-
-  package:
-    needs: [build, prepare-models]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # ── Windows CPU ──
-          - os: windows-latest
-            platform: windows-x64
-            variant: cpu
-            artifact: hifisampler-windows-x64-cpu
-            ort_source: github
-            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-win-x64-1.24.1.zip"
-            ort_dir: "onnxruntime-win-x64-1.24.1"
-          # ── Windows DirectML ──
-          - os: windows-latest
-            platform: windows-x64
-            variant: directml
-            artifact: hifisampler-windows-x64-directml
-            ort_source: nuget
-            nuget_pkg: "Microsoft.ML.OnnxRuntime.DirectML"
-            nuget_ver: "1.23.0"
-            nuget_rid: "win-x64"
-          # ── Windows CUDA (includes TensorRT) ──
-          - os: windows-latest
-            platform: windows-x64
-            variant: cuda
-            artifact: hifisampler-windows-x64-cuda
-            ort_source: github
-            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-win-x64-gpu-1.24.1.zip"
-            ort_dir: "onnxruntime-win-x64-gpu-1.24.1"
-          # ── Linux CPU ──
-          - os: ubuntu-24.04
-            platform: linux-x64
-            variant: cpu
-            artifact: hifisampler-linux-x64-cpu
-            ort_source: github
-            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-linux-x64-1.24.1.tgz"
-            ort_dir: "onnxruntime-linux-x64-1.24.1"
-          # ── Linux CUDA (includes TensorRT) ──
-          - os: ubuntu-24.04
-            platform: linux-x64
-            variant: cuda
-            artifact: hifisampler-linux-x64-cuda
-            ort_source: github
-            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-linux-x64-gpu-1.24.1.tgz"
-            ort_dir: "onnxruntime-linux-x64-gpu-1.24.1"
-          # ── macOS ARM64 (includes CoreML) ──
-          - os: macos-latest
-            platform: macos-arm64
-            variant: cpu
-            artifact: hifisampler-macos-arm64
-            ort_source: github
-            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-osx-arm64-1.24.1.tgz"
-            ort_dir: "onnxruntime-osx-arm64-1.24.1"
-
-    runs-on: ${{ matrix.os }}
-    name: Package (${{ matrix.artifact }})
-
-    steps:
-      - uses: actions/checkout@v4
-
-      # Download pre-built binaries from build stage
-      - name: Download compiled binaries
-        uses: actions/download-artifact@v4
-        with:
-          name: binaries-${{ matrix.platform }}
-          path: binaries
-
-      - name: Download shared models artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: shared-models
-          path: models
-
-      - name: Cache ORT libraries
-        id: cache-ort
-        uses: actions/cache@v4
-        with:
-          path: |
-            ort_lib
-            ort_extract
-            ort_archive
-            ort_nuget.nupkg
-            ort_nuget_extract
-          key: ${{ runner.os }}-ort-${{ matrix.platform }}-${{ matrix.variant }}-${{ matrix.ort_source }}-${{ env.ORT_VERSION }}-${{ matrix.nuget_ver }}
-
-      # ── Download ONNX Runtime from GitHub releases ──
-      - name: Download ORT (GitHub Release)
-        if: matrix.ort_source == 'github' && steps.cache-ort.outputs.cache-hit != 'true'
+      # ── Run unit tests (CPU backend only — CI runners have no GPU) ──
+      - name: Run unit tests
+        if: matrix.backend == 'cpu'
         shell: bash
-        run: |
-          echo "Downloading ONNX Runtime from ${{ matrix.ort_url }}..."
-          curl -fSL --retry 3 "${{ matrix.ort_url }}" -o ort_archive
-
-          if [[ "${{ matrix.ort_url }}" == *.zip ]]; then
-            unzip -q ort_archive -d ort_extract
-          else
-            mkdir -p ort_extract && tar xzf ort_archive -C ort_extract
-          fi
-
-          # Copy ALL shared libraries from lib/ directory
-          mkdir -p ort_lib
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            find "ort_extract/${{ matrix.ort_dir }}/lib" -name "*.dll" -exec cp {} ort_lib/ \;
-          elif [[ "${{ runner.os }}" == "Linux" ]]; then
-            find "ort_extract/${{ matrix.ort_dir }}/lib" -name "*.so*" -exec cp -P {} ort_lib/ \;
-          else
-            find "ort_extract/${{ matrix.ort_dir }}/lib" \( -name "*.dylib" -o -name "*.dylib.*" \) -exec cp -P {} ort_lib/ \;
-          fi
-          echo "=== ORT libraries for variant '${{ matrix.variant }}' ==="
-          ls -lh ort_lib/
-
-      # ── Download ONNX Runtime from NuGet (for DirectML) ──
-      - name: Download ORT (NuGet)
-        if: matrix.ort_source == 'nuget' && steps.cache-ort.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          echo "Downloading ${{ matrix.nuget_pkg }} v${{ matrix.nuget_ver }} from NuGet..."
-          curl -fSL --retry 3 \
-            "https://www.nuget.org/api/v2/package/${{ matrix.nuget_pkg }}/${{ matrix.nuget_ver }}" \
-            -o ort_nuget.nupkg
-
-          # NuGet packages are just zip files
-          unzip -q ort_nuget.nupkg -d ort_nuget_extract
-
-          # Copy native DLLs from runtimes/<rid>/native/
-          mkdir -p ort_lib
-          find "ort_nuget_extract/runtimes/${{ matrix.nuget_rid }}/native" -name "*.dll" -exec cp {} ort_lib/ \;
-          echo "=== ORT libraries for variant '${{ matrix.variant }}' (NuGet) ==="
-          ls -lh ort_lib/
+        run: cargo test --release --target ${{ matrix.target }} ${{ matrix.cargo_features }}
 
       # ── Package (Windows) ──
       - name: Package (Windows)
@@ -308,21 +135,49 @@ jobs:
           $out = "dist/${{ matrix.artifact }}"
           New-Item -ItemType Directory -Force -Path $out
 
-          # Binaries (from build stage artifact — flat directory)
-          Copy-Item "binaries/hifisampler-server.exe" "$out/"
-          Copy-Item "binaries/hifisampler.exe"        "$out/"
+          # Binaries
+          Copy-Item "target/${{ matrix.target }}/release/hifisampler-server.exe" "$out/"
+          Copy-Item "target/${{ matrix.target }}/release/hifisampler.exe"        "$out/"
 
           # Config & docs
           Copy-Item "config.default.yaml" "$out/"
           Copy-Item "README.md"           "$out/"
           if (Test-Path "LICENSE") { Copy-Item "LICENSE" "$out/" }
 
-          # ALL ONNX Runtime DLLs (onnxruntime.dll, providers_shared, providers_cuda, etc.)
-          if (Test-Path "ort_lib") { Copy-Item "ort_lib/*" "$out/" }
-
           # WebUI & models
           if (Test-Path "webui") { Copy-Item -Recurse "webui" "$out/webui" }
           if (Test-Path "models") { Copy-Item -Recurse "models" "$out/models" }
+
+          # CUDA runtime DLLs (CUDA backend only)
+          # cudarc uses dynamic loading — only needs these at runtime:
+          #   - cublas64_*.dll  (matmul, loaded by cudarc "cublas" feature)
+          #   - nvrtc64_*.dll   (kernel JIT compilation, loaded by "nvrtc" feature)
+          # NOT needed (not loaded by cubecl-cuda's cudarc features):
+          #   - cublasLt64_*.dll  (cublasLt is an optional cudarc feature, not enabled)
+          #   - nvrtc64_*.alt.dll (alternate copy, not loaded)
+          # nvcuda.dll comes from the NVIDIA driver, not packaged here.
+          if ("${{ matrix.backend }}" -eq "cuda") {
+            $cudaPaths = @(
+              "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v*\bin",
+              "C:\Program Files\NVIDIA Corporation\CUDA\v*\bin"
+            )
+            $cudaBin = $null
+            foreach ($p in $cudaPaths) {
+              $found = Get-Item $p -ErrorAction SilentlyContinue | Sort-Object -Descending | Select-Object -First 1
+              if ($found) { $cudaBin = $found.FullName; break }
+            }
+            if (-not $cudaBin) {
+              Write-Host "::warning::CUDA Toolkit not found on runner — CUDA DLLs will not be packaged"
+            } else {
+              Write-Host "Found CUDA Toolkit at: $cudaBin"
+              # cublas — skip cublasLt (not used by cubecl-cuda)
+              $cublas = Get-ChildItem "$cudaBin\cublas64_*.dll" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+              if ($cublas) { Copy-Item $cublas.FullName "$out/"; Write-Host "  Packaged: $($cublas.Name)" }
+              # nvrtc — skip .alt.dll (not loaded by cudarc)
+              $nvrtc = Get-ChildItem "$cudaBin\nvrtc64_*.dll" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "*.alt.dll" } | Sort-Object Name -Descending | Select-Object -First 1
+              if ($nvrtc) { Copy-Item $nvrtc.FullName "$out/"; Write-Host "  Packaged: $($nvrtc.Name)" }
+            }
+          }
 
       # ── Build Inno Setup installer (Windows only) ──
       - name: Build installer
@@ -335,7 +190,7 @@ jobs:
           $version = $version -replace '[\\/:*?"<>|]', '-'
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
             /DSourceDir="$sourceDir" `
-            /DVariant="${{ matrix.variant }}" `
+            /DVariant="${{ matrix.backend }}" `
             /DMyAppVersion="$version" `
             installer\setup.iss
 
@@ -346,9 +201,9 @@ jobs:
           out="dist/${{ matrix.artifact }}"
           mkdir -p "$out"
 
-          # Binaries (from build stage artifact — flat directory)
-          cp "binaries/hifisampler-server" "$out/"
-          cp "binaries/hifisampler"        "$out/"
+          # Binaries
+          cp "target/${{ matrix.target }}/release/hifisampler-server" "$out/"
+          cp "target/${{ matrix.target }}/release/hifisampler"        "$out/"
           chmod +x "$out/hifisampler-server" "$out/hifisampler"
 
           # Config & docs
@@ -356,14 +211,41 @@ jobs:
           cp README.md           "$out/"
           [ -f LICENSE ] && cp LICENSE "$out/"
 
-          # ALL ORT shared libraries
-          [ -d ort_lib ] && cp -P ort_lib/* "$out/"
-
           # WebUI & models
           [ -d webui ] && cp -r webui "$out/webui"
           [ -d models ] && cp -r models "$out/models"
 
-      # Upload the assembled directory (NO zip/tar — upload-artifact wraps it)
+          # CUDA runtime shared libs (CUDA backend only)
+          # cudarc uses dynamic loading — only needs these at runtime:
+          #   - libcublas.so*  (matmul, loaded by cudarc "cublas" feature)
+          #   - libnvrtc.so*   (kernel JIT compilation, loaded by "nvrtc" feature)
+          # NOT needed (not loaded by cubecl-cuda's cudarc features):
+          #   - libcublasLt.so*  (cublasLt is an optional cudarc feature, not enabled)
+          # libcuda.so comes from the NVIDIA driver, not packaged here.
+          if [ "${{ matrix.backend }}" = "cuda" ]; then
+            cuda_lib_paths=""
+            for dir in /usr/local/cuda*/lib64 /usr/lib/cuda/lib64; do
+              if [ -d "$dir" ]; then
+                cuda_lib_paths="$dir"
+                break
+              fi
+            done
+            if [ -z "$cuda_lib_paths" ]; then
+              echo "::warning::CUDA lib dir not found — CUDA .so files will not be packaged"
+            else
+              echo "Found CUDA libs at: $cuda_lib_paths"
+              # cublas — copy the main .so and its symlinks, skip cublasLt
+              for f in $cuda_lib_paths/libcublas.so*; do
+                [ -f "$f" ] && cp -P "$f" "$out/" && echo "  Packaged: $(basename $f)"
+              done
+              # nvrtc
+              for f in $cuda_lib_paths/libnvrtc.so*; do
+                [ -f "$f" ] && cp -P "$f" "$out/" && echo "  Packaged: $(basename $f)"
+              done
+            fi
+          fi
+
+      # Upload the assembled directory
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
@@ -380,7 +262,7 @@ jobs:
 
   # ────────────────────────── Release ──────────────────────────
   release:
-    needs: package
+    needs: build
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
@@ -399,9 +281,6 @@ jobs:
           cd artifacts
           for dir in */; do
             name="${dir%/}"
-
-            # Skip build-stage binary artifacts
-            [[ "$name" == binaries-* ]] && continue
 
             # Installer exes — copy directly
             if [[ "$name" == *-installer ]]; then
@@ -423,3 +302,78 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release_assets/*
+
+  # ────────────────────────── Convert + Upload Models ──────────────────────────
+  # One-time / on-demand: downloads source .pt files from HuggingFace, converts
+  # them to Burn's native Burnpack (.bpk) format, and uploads the .bpk files
+  # back to HuggingFace. Triggered manually via workflow_dispatch, or on push to
+  # main. Uses the NdArray (CPU) backend so it runs on any CI runner without GPU.
+  convert-models:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    env:
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: convert-models-x86_64-pc-windows-msvc
+
+      - name: Install HF CLI
+        run: pip install huggingface-hub
+
+      - name: Download source .pt files from HuggingFace
+        shell: bash
+        run: |
+          mkdir -p models/vocoder models/hnsep
+          echo "Downloading source vocoder_fused.pt..."
+          curl -fSL --retry 3 "$HF_MODELS_BASE/vocoder_fused.pt" -o models/vocoder/vocoder_fused.pt
+          echo "Downloading source hnsep_fused.pt..."
+          curl -fSL --retry 3 "$HF_MODELS_BASE/hnsep_fused.pt" -o models/hnsep/hnsep_fused.pt
+          ls -lhR models/
+
+      # Build converter with NdArray backend — no GPU needed for weight conversion.
+      - name: Build converter
+        shell: bash
+        run: cargo build --release --bin convert_models --no-default-features --features hifisampler-core/ndarray
+
+      - name: Convert .pt → .bpk
+        shell: bash
+        run: |
+          ./target/release/convert_models.exe \
+            --all \
+            models/vocoder/vocoder_fused.pt models/vocoder/vocoder_fused.bpk \
+            models/hnsep/hnsep_fused.pt models/hnsep/hnsep_fused.bpk
+          ls -lh models/vocoder/*.bpk models/hnsep/*.bpk
+
+      - name: Upload .bpk files to HuggingFace
+        shell: bash
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::warning::HF_TOKEN secret is not set — skipping upload. .bpk files are still built as artifacts."
+            exit 0
+          fi
+          hf upload SVCFusion/things models/vocoder/vocoder_fused.bpk hifisampler/vocoder_fused.bpk \
+            --repo-type model --commit-message "Update vocoder_fused.bpk (Burn native format)"
+          hf upload SVCFusion/things models/hnsep/hnsep_fused.bpk hifisampler/hnsep_fused.bpk \
+            --repo-type model --commit-message "Update hnsep_fused.bpk (Burn native format)"
+
+      - name: Upload .bpk artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bpk-models
+          path: |
+            models/vocoder/*.bpk
+            models/hnsep/*.bpk

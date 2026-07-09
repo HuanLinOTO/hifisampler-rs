@@ -3,13 +3,31 @@ edition.workspace = true
 name = "hifisampler-core"
 version.workspace = true
 
+[features]
+default = ["wgpu"]
+# Pure CPU backend (burn NdArray). No GPU dependencies — smallest binary,
+# works on headless servers / CI. Slower inference than GPU backends.
+ndarray = ["burn/ndarray"]
+# wgpu backend (WGSL shaders) — works everywhere (AMD, Intel, NVIDIA, Apple Metal).
+# GPU acceleration via Vulkan/Metal/DX12 depending on platform.
+wgpu = ["burn/wgpu"]
+# NVIDIA CUDA backend (via cudarc). Mutually exclusive with wgpu/ndarray in practice —
+# pick one at build time. CI builds three binaries: ndarray (cpu), wgpu, cuda.
+cuda = ["burn/cuda"]
+# Vulkan backend via SPIR-V shaders — faster than WGSL on Windows/Linux but
+# requires Vulkan SDK at build time. NOT supported on macOS (use plain wgpu).
+# Enable with: --features hifisampler-core/vulkan
+vulkan = ["burn/vulkan"]
+
 [dependencies]
 anyhow.workspace = true
 base64.workspace = true
+burn.workspace = true
+burn-store.workspace = true
+clap.workspace = true
 hound.workspace = true
-ndarray.workspace = true
+ndarray = "0.17"
 num-complex.workspace = true
-ort.workspace = true
 parking_lot.workspace = true
 regex.workspace = true
 rubato.workspace = true

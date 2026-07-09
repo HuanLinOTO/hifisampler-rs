@@ -4,9 +4,10 @@
 ;   iscc /DSourceDir=..\dist\hifisampler-windows-x64-cpu setup.iss
 ;
 ; CI build:
-;   iscc /DSourceDir=D:\a\repo\dist\hifisampler-windows-x64-directml ^
-;        /DVariant=directml /DMyAppVersion=0.2.0 setup.iss
+;   iscc /DSourceDir=D:\a\repo\dist\hifisampler-windows-x64-webgpu ^
+;        /DVariant=webgpu /DMyAppVersion=0.2.0 setup.iss
 ;
+; Variants: cpu (NdArray), webgpu (wgpu), cuda (CUDA)
 ; Requires Inno Setup 6.x — https://jrsoftware.org/isinfo.php
 ; ─────────────────────────────────────────────────────────────
 
@@ -68,7 +69,7 @@ Name: "installbridge"; Description: "自动安装桥接程序到 OpenUTAU Resamp
 Source: "{#SourceDir}\hifisampler-server.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\hifisampler.exe"; DestDir: "{app}"; Flags: ignoreversion
 
-; ── ONNX Runtime DLLs (varies per EP variant) ──
+; ── Native DLLs (if any — Burn uses dynamic loading, usually none) ──
 Source: "{#SourceDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; ── Config ──

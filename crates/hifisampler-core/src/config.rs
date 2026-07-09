@@ -149,13 +149,13 @@ fn default_pad_frames() -> usize {
     6
 }
 fn default_vocoder_model() -> PathBuf {
-    PathBuf::from("models/vocoder/model.onnx")
+    PathBuf::from("models/vocoder/vocoder_fused.bpk")
 }
 fn default_vocoder_type() -> String {
-    "onnx".to_string()
+    "burn".to_string()
 }
 fn default_hnsep_model() -> PathBuf {
-    PathBuf::from("models/hnsep/model.onnx")
+    PathBuf::from("models/hnsep/hnsep_fused.bpk")
 }
 fn default_silence_threshold() -> f64 {
     -52.0

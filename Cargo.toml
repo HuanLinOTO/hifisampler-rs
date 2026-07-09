@@ -23,9 +23,10 @@ tower-http = {version = "0.6", features = ["cors", "fs"]}
 serde = {version = "1", features = ["derive"]}
 serde_json = "1"
 serde_yaml = "0.9"
-# ONNX Runtime
-ndarray = "0.17"
-ort = {version = "2.0.0-rc.11", features = ["ndarray", "load-dynamic"]}
+# Burn (native Rust inference) — base only; cuda/wgpu features are
+# controlled by hifisampler-core's own feature flags.
+burn = { version = "0.21", default-features = false, features = ["std", "fusion", "autotune"] }
+burn-store = "0.21"
 # Audio processing
 hound = "3.5"
 rubato = "0.16"
@@ -52,4 +53,10 @@ strip = true
 
 [profile.release]
 lto = "thin"
-opt-level = "z"
+opt-level = 3
+
+# ── Patch: widen gpu-allocator's windows crate range so it unifies with
+# wgpu-hal 29 (which uses windows 0.62.2). Upstream gpu-allocator 0.28 caps
+# at <=0.62 which excludes 0.62.2, causing D3D12 type-mismatch errors.
+[patch.crates-io]
+gpu-allocator = { path = "patches/gpu-allocator-0.28.0" }

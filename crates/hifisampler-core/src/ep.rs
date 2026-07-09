@@ -1,147 +1,146 @@
-//! Execution provider configuration for ONNX Runtime sessions.
+//! Backend selection for the Burn native inference stack.
 //!
-//! Supports: CUDA, TensorRT, DirectML, CoreML, and CPU.
-//! Uses `load-dynamic` feature so that all EPs are available at runtime if the
-//! user provides an appropriate `onnxruntime` shared library.
+//! The backend is chosen at compile time via Cargo features:
+//! - `ndarray` feature → `burn::backend::NdArray` (pure CPU, no GPU deps)
+//! - `wgpu` feature    → `burn::backend::Wgpu` (Vulkan/Metal/DX12, all GPUs)
+//! - `cuda` feature    → `burn::backend::Cuda` (NVIDIA only, fastest)
 //!
-//! Note: ROCm EP was removed from ONNX Runtime 1.23+. AMD users should use
-//! MIGraphX EP or the DirectML EP (which also supports AMD GPUs on Windows).
+//! CI produces three distribution packages:
+//! - **CPU**    — ndarray backend (lightweight, headless servers)
+//! - **WebGPU** — wgpu backend (GPU acceleration, all platforms)
+//! - **CUDA**   — cuda backend (NVIDIA only, fastest)
+//!
+//! ONNX Runtime has been completely removed.
 
-use ort::ep::{CoreML, DirectML, ExecutionProvider, ExecutionProviderDispatch, TensorRT, CUDA};
 use serde::Serialize;
-use tracing::{info, warn};
+use tracing::info;
 
-/// Runtime execution-provider capabilities for the currently loaded ONNX Runtime.
+// ── Compile-time backend selection ──
+// Priority: cuda > wgpu > ndarray
+#[cfg(feature = "cuda")]
+use burn::backend::Cuda;
+
+#[cfg(all(feature = "wgpu", not(feature = "cuda")))]
+use burn::backend::Wgpu;
+
+#[cfg(all(feature = "ndarray", not(any(feature = "cuda", feature = "wgpu"))))]
+use burn::backend::NdArray;
+
+#[cfg(not(any(feature = "cuda", feature = "wgpu", feature = "ndarray")))]
+compile_error!(
+    "hifisampler-core requires at least one of: \
+     feature = \"ndarray\", feature = \"wgpu\", or feature = \"cuda\""
+);
+
+/// Burn backend type used by all models.
+/// Selected at compile time: Cuda (if `cuda` feature), Wgpu (if `wgpu`), or NdArray (if `ndarray`).
+#[cfg(feature = "cuda")]
+pub type VocoderBackend = Cuda<burn::tensor::f16>;
+
+#[cfg(all(feature = "wgpu", not(feature = "cuda")))]
+pub type VocoderBackend = Wgpu;
+
+#[cfg(all(feature = "ndarray", not(any(feature = "cuda", feature = "wgpu"))))]
+pub type VocoderBackend = NdArray;
+
+/// Burn backend for HN-SEP model. Uses f16 for Tensor Core acceleration
+/// and halved memory bandwidth on memory-bound ops (BN, activation, interpolate, cat).
+/// Vocoder stays f32 (variable shapes + f16-sensitive output).
+/// CPU LSTM path already converts via `elem::<f32>()`, so f16 input is transparent.
+#[cfg(feature = "cuda")]
+pub type HnsepBackend = Cuda<burn::tensor::f16>;
+
+#[cfg(all(feature = "wgpu", not(feature = "cuda")))]
+pub type HnsepBackend = Wgpu;
+
+#[cfg(all(feature = "ndarray", not(any(feature = "cuda", feature = "wgpu"))))]
+pub type HnsepBackend = NdArray;
+
+/// Select a Burn device for the given config device string.
+///
+/// Behavior depends on the compiled backend:
+/// - **NdArray**: device string is ignored — NdArray has a single no-op CPU device.
+/// - **Wgpu**: `cpu` → CPU device, `auto`/`vulkan` → best available GPU.
+/// - **Cuda**: any value → CUDA device 0.
+pub fn select_burn_device(device: &str) -> burn::tensor::Device<VocoderBackend> {
+    let device_lower = device.to_lowercase();
+    info!(
+        "[ep] select_burn_device: creating device (requested={})",
+        device_lower
+    );
+
+    // ── Cuda backend ──
+    #[cfg(feature = "cuda")]
+    {
+        let dev = match device_lower.as_str() {
+            "cpu" => {
+                info!("[ep] CUDA backend does not support CPU-only mode, using CUDA device 0");
+                burn::backend::cuda::CudaDevice::new(0).into()
+            }
+            _ => {
+                info!("[ep] selecting CUDA device 0");
+                burn::backend::cuda::CudaDevice::new(0).into()
+            }
+        };
+        info!("[ep] device created successfully");
+        return dev;
+    }
+
+    // ── Wgpu backend ──
+    #[cfg(all(feature = "wgpu", not(feature = "cuda")))]
+    {
+        let dev = match device_lower.as_str() {
+            "cpu" => {
+                info!("[ep] selecting CPU device");
+                burn::backend::wgpu::WgpuDevice::Cpu.into()
+            }
+            _ => {
+                info!("[ep] selecting best available GPU device");
+                burn::backend::wgpu::WgpuDevice::BestAvailable.into()
+            }
+        };
+        info!("[ep] device created successfully");
+        return dev;
+    }
+
+    // ── NdArray backend (pure CPU) ──
+    #[cfg(all(feature = "ndarray", not(any(feature = "cuda", feature = "wgpu"))))]
+    {
+        // NdArray has a single no-op device; the requested device string is irrelevant.
+        info!("[ep] using NdArray CPU device");
+        return burn::tensor::Device::<NdArray>::default();
+    }
+}
+
+/// Runtime capabilities for the Burn backend.
 #[derive(Debug, Clone, Serialize)]
 pub struct EpCapabilities {
     pub available_devices: Vec<String>,
     pub available_eps_raw: Vec<String>,
 }
 
-/// Detect available execution providers from ONNX Runtime.
-///
-/// This uses `ExecutionProvider::is_available()` for known providers and builds
-/// a UI-friendly device list (`auto`, `cpu`, `cuda`, `tensorrt`, `directml`, `coreml`).
+/// Detect available Burn backend capabilities.
 pub fn detect_ep_capabilities() -> EpCapabilities {
-    let mut available_devices = vec!["auto".to_string(), "cpu".to_string()];
-    let mut available_eps_raw = vec!["CPUExecutionProvider".to_string()];
+    #[cfg(feature = "cuda")]
+    let (eps, devices) = (
+        vec!["BurnCuda".to_string()],
+        vec!["auto".to_string(), "cuda".to_string()],
+    );
 
-    let directml_ok = DirectML::default().is_available().unwrap_or(false);
-    let cuda_ok = CUDA::default().is_available().unwrap_or(false);
-    let trt_ok = TensorRT::default().is_available().unwrap_or(false);
-    let coreml_ok = CoreML::default().is_available().unwrap_or(false);
+    #[cfg(all(feature = "wgpu", not(feature = "cuda")))]
+    let (eps, devices) = (
+        vec!["BurnWgpu".to_string()],
+        vec!["auto".to_string(), "cpu".to_string(), "vulkan".to_string()],
+    );
 
-    if directml_ok {
-        available_devices.push("directml".to_string());
-        available_eps_raw.push("DmlExecutionProvider".to_string());
-    }
-    if cuda_ok {
-        available_devices.push("cuda".to_string());
-        available_eps_raw.push("CUDAExecutionProvider".to_string());
-    }
-    if trt_ok {
-        available_devices.push("tensorrt".to_string());
-        available_eps_raw.push("TensorrtExecutionProvider".to_string());
-    }
-    if coreml_ok {
-        available_devices.push("coreml".to_string());
-        available_eps_raw.push("CoreMLExecutionProvider".to_string());
-    }
+    #[cfg(all(feature = "ndarray", not(any(feature = "cuda", feature = "wgpu"))))]
+    let (eps, devices) = (
+        vec!["BurnNdArray".to_string()],
+        vec!["cpu".to_string()],
+    );
 
     EpCapabilities {
-        available_devices,
-        available_eps_raw,
+        available_devices: devices,
+        available_eps_raw: eps,
     }
-}
-
-/// Build the list of execution providers for the given device string.
-///
-/// Supported values for `device`:
-/// - `"auto"` — register all platform-appropriate EPs in optimal priority order;
-///   ort will silently skip unavailable ones and fall back to CPU.
-/// - `"cpu"` — no GPU EP, pure CPU inference.
-/// - `"cuda"` — NVIDIA CUDA.
-/// - `"tensorrt"` — NVIDIA TensorRT (falls back to CUDA).
-/// - `"directml"` / `"dml"` — Microsoft DirectML (Windows).
-/// - `"coreml"` — Apple CoreML (macOS / iOS).
-/// - Any other value is treated as `"cpu"` with a warning.
-pub fn build_execution_providers(device: &str, device_id: i32) -> Vec<ExecutionProviderDispatch> {
-    let device_lower = device.to_lowercase();
-    let device_str = device_lower.as_str();
-
-    match device_str {
-        "auto" => {
-            info!("Device=auto: registering all available execution providers");
-            auto_providers()
-        }
-        "cpu" => {
-            info!("Device=cpu: using CPU only");
-            vec![]
-        }
-        "cuda" => {
-            info!("Device=cuda: registering CUDA execution provider");
-            vec![CUDA::default().build()]
-        }
-        "tensorrt" | "trt" => {
-            info!("Device=tensorrt: registering TensorRT + CUDA execution providers");
-            vec![TensorRT::default().build(), CUDA::default().build()]
-        }
-        "directml" | "dml" => {
-            info!(
-                "Device=directml: registering DirectML execution provider (device_id={device_id})"
-            );
-            vec![DirectML::default().with_device_id(device_id).build()]
-        }
-        "coreml" => {
-            info!("Device=coreml: registering CoreML execution provider");
-            vec![CoreML::default().build()]
-        }
-        other => {
-            warn!(
-                "Unknown device '{}', falling back to CPU. \
-                 Supported: auto, cpu, cuda, tensorrt, directml, coreml",
-                other
-            );
-            vec![]
-        }
-    }
-}
-
-/// Build the optimal EP list for the current platform.
-///
-/// The caller should expect ERROR-level logs from `ort::ep` when an EP cannot
-/// be registered (e.g. missing CUDA/cuDNN/TensorRT SDK).  These are harmless —
-/// ONNX Runtime will automatically fall back to the next EP in the list and
-/// ultimately to CPU if nothing else is available.
-fn auto_providers() -> Vec<ExecutionProviderDispatch> {
-    info!(
-        "Auto mode will try GPU providers in priority order. \
-         Errors from ort::ep about missing DLLs (e.g. nvinfer, cudnn) are normal \
-         if the corresponding SDK is not installed — ONNX Runtime will fall back to CPU."
-    );
-    let mut eps: Vec<ExecutionProviderDispatch> = Vec::new();
-
-    // NVIDIA: TensorRT > CUDA  (Windows + Linux)
-    if cfg!(any(
-        all(target_os = "windows", target_arch = "x86_64"),
-        all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )
-    )) {
-        eps.push(TensorRT::default().build());
-        eps.push(CUDA::default().build());
-    }
-
-    // DirectML (Windows only)
-    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
-        eps.push(DirectML::default().build());
-    }
-
-    // CoreML (macOS / iOS)
-    if cfg!(target_os = "macos") {
-        eps.push(CoreML::default().build());
-    }
-
-    eps
 }

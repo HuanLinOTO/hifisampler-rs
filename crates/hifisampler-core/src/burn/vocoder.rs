@@ -4,7 +4,7 @@ use burn::nn::conv::{Conv1d, Conv1dConfig, ConvTranspose1d, ConvTranspose1dConfi
 use burn::nn::PaddingConfig1d;
 use burn::tensor::activation::leaky_relu;
 use burn::tensor::{Tensor, backend::Backend};
-use burn_store::{ModuleSnapshot, PytorchStore};
+use burn_store::{BurnpackStore, ModuleSnapshot, PytorchStore};
 
 use super::fastsinegen::fastsinegen;
 use super::resblock::ResBlock1;
@@ -155,5 +155,49 @@ impl<B: Backend> HifiGanNsf<B> {
         }
         tracing::info!("loaded {} vocoder tensors", result.applied.len());
         Ok(model)
+    }
+
+    /// 从 Burnpack (.bpk) 文件加载权重。
+    ///
+    /// 与 `load_from_pt` 相比：无需 PyTorchToBurnAdapter，无需 dtype 转换，
+    /// 内存映射 + lazy load，加载速度约 20x。
+    pub fn load_from_bpk(
+        path: impl Into<std::path::PathBuf>,
+        device: &B::Device,
+    ) -> anyhow::Result<Self> {
+        let path = path.into();
+        let mut model = HifiGanNsfConfig::new(
+            128,
+            512,
+            vec![8, 8, 2, 2, 2],
+            vec![16, 16, 4, 4, 4],
+            vec![3, 7, 11],
+            vec![vec![1, 3, 5], vec![1, 3, 5], vec![1, 3, 5]],
+            44100,
+        )
+        .init(device);
+
+        let mut store = BurnpackStore::from_file(path);
+        let result = model.load_from(&mut store)?;
+        if !result.missing.is_empty() {
+            anyhow::bail!("missing tensors: {:?}", result.missing);
+        }
+        if !result.errors.is_empty() {
+            anyhow::bail!("load errors: {:?}", result.errors);
+        }
+        tracing::info!("loaded {} vocoder tensors (bpk)", result.applied.len());
+        Ok(model)
+    }
+
+    /// 保存为 Burnpack (.bpk) 格式。
+    pub fn save_to_bpk(&self, path: impl Into<std::path::PathBuf>) -> anyhow::Result<()> {
+        let path = path.into();
+        let mut store = BurnpackStore::from_file(&path).overwrite(true);
+        self.save_into(&mut store)?;
+        tracing::info!(
+            "saved vocoder tensors to {} (bpk)",
+            path.display()
+        );
+        Ok(())
     }
 }

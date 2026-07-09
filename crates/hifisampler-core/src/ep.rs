@@ -1,8 +1,14 @@
 //! Backend selection for the Burn native inference stack.
 //!
 //! The backend is chosen at compile time via Cargo features:
-//! - `cuda` feature  → `burn::backend::Cuda` (NVIDIA only, fastest)
-//! - `wgpu` feature  → `burn::backend::Wgpu` (Vulkan, works on all GPUs)
+//! - `ndarray` feature → `burn::backend::NdArray` (pure CPU, no GPU deps)
+//! - `wgpu` feature    → `burn::backend::Wgpu` (Vulkan/Metal/DX12, all GPUs)
+//! - `cuda` feature    → `burn::backend::Cuda` (NVIDIA only, fastest)
+//!
+//! CI produces three distribution packages:
+//! - **CPU**    — ndarray backend (lightweight, headless servers)
+//! - **WebGPU** — wgpu backend (GPU acceleration, all platforms)
+//! - **CUDA**   — cuda backend (NVIDIA only, fastest)
 //!
 //! ONNX Runtime has been completely removed.
 
@@ -10,62 +16,87 @@ use serde::Serialize;
 use tracing::info;
 
 // ── Compile-time backend selection ──
+// Priority: cuda > wgpu > ndarray
 #[cfg(feature = "cuda")]
 use burn::backend::Cuda;
 
 #[cfg(all(feature = "wgpu", not(feature = "cuda")))]
 use burn::backend::Wgpu;
 
-#[cfg(not(any(feature = "cuda", feature = "wgpu")))]
-compile_error!("hifisampler-core requires at least one of: feature = \"cuda\" or feature = \"wgpu\"");
+#[cfg(all(feature = "ndarray", not(any(feature = "cuda", feature = "wgpu"))))]
+use burn::backend::NdArray;
+
+#[cfg(not(any(feature = "cuda", feature = "wgpu", feature = "ndarray")))]
+compile_error!(
+    "hifisampler-core requires at least one of: \
+     feature = \"ndarray\", feature = \"wgpu\", or feature = \"cuda\""
+);
 
 /// Burn backend type used by all models.
-/// Selected at compile time: Cuda (if `cuda` feature) or Wgpu (if `wgpu` feature).
+/// Selected at compile time: Cuda (if `cuda` feature), Wgpu (if `wgpu`), or NdArray (if `ndarray`).
 #[cfg(feature = "cuda")]
 pub type VocoderBackend = Cuda;
 
 #[cfg(all(feature = "wgpu", not(feature = "cuda")))]
 pub type VocoderBackend = Wgpu;
 
+#[cfg(all(feature = "ndarray", not(any(feature = "cuda", feature = "wgpu"))))]
+pub type VocoderBackend = NdArray;
+
 /// Select a Burn device for the given config device string.
 ///
-/// - `auto` / `vulkan` / `cuda` -> best available GPU
-/// - `cpu` -> CPU
-/// - legacy `directml`/`dml`/`coreml`/`tensorrt` -> mapped to GPU
+/// Behavior depends on the compiled backend:
+/// - **NdArray**: device string is ignored — NdArray has a single no-op CPU device.
+/// - **Wgpu**: `cpu` → CPU device, `auto`/`vulkan` → best available GPU.
+/// - **Cuda**: any value → CUDA device 0.
 pub fn select_burn_device(device: &str) -> burn::tensor::Device<VocoderBackend> {
     let device_lower = device.to_lowercase();
-    info!("[ep] select_burn_device: creating device (requested={})", device_lower);
+    info!(
+        "[ep] select_burn_device: creating device (requested={})",
+        device_lower
+    );
 
-    let dev: burn::tensor::Device<VocoderBackend> = match device_lower.as_str() {
-        "cpu" => {
-            #[cfg(feature = "cuda")]
-            {
-                // CUDA backend doesn't have a CPU-only device; use device 0 as fallback.
+    // ── Cuda backend ──
+    #[cfg(feature = "cuda")]
+    {
+        let dev = match device_lower.as_str() {
+            "cpu" => {
                 info!("[ep] CUDA backend does not support CPU-only mode, using CUDA device 0");
                 burn::backend::cuda::CudaDevice::new(0).into()
             }
-            #[cfg(all(feature = "wgpu", not(feature = "cuda")))]
-            {
+            _ => {
+                info!("[ep] selecting CUDA device 0");
+                burn::backend::cuda::CudaDevice::new(0).into()
+            }
+        };
+        info!("[ep] device created successfully");
+        return dev;
+    }
+
+    // ── Wgpu backend ──
+    #[cfg(all(feature = "wgpu", not(feature = "cuda")))]
+    {
+        let dev = match device_lower.as_str() {
+            "cpu" => {
                 info!("[ep] selecting CPU device");
                 burn::backend::wgpu::WgpuDevice::Cpu.into()
             }
-        }
-        _ => {
-            // auto, vulkan, cuda, directml, dml, coreml, tensorrt → best available
-            info!("[ep] selecting best available GPU device");
-            #[cfg(feature = "cuda")]
-            {
-                burn::backend::cuda::CudaDevice::new(0).into()
-            }
-            #[cfg(all(feature = "wgpu", not(feature = "cuda")))]
-            {
+            _ => {
+                info!("[ep] selecting best available GPU device");
                 burn::backend::wgpu::WgpuDevice::BestAvailable.into()
             }
-        }
-    };
+        };
+        info!("[ep] device created successfully");
+        return dev;
+    }
 
-    info!("[ep] device created successfully");
-    dev
+    // ── NdArray backend (pure CPU) ──
+    #[cfg(all(feature = "ndarray", not(any(feature = "cuda", feature = "wgpu"))))]
+    {
+        // NdArray has a single no-op device; the requested device string is irrelevant.
+        info!("[ep] using NdArray CPU device");
+        return burn::tensor::Device::<NdArray>::default();
+    }
 }
 
 /// Runtime capabilities for the Burn backend.
@@ -82,10 +113,17 @@ pub fn detect_ep_capabilities() -> EpCapabilities {
         vec!["BurnCuda".to_string()],
         vec!["auto".to_string(), "cuda".to_string()],
     );
+
     #[cfg(all(feature = "wgpu", not(feature = "cuda")))]
     let (eps, devices) = (
         vec!["BurnWgpu".to_string()],
         vec!["auto".to_string(), "cpu".to_string(), "vulkan".to_string()],
+    );
+
+    #[cfg(all(feature = "ndarray", not(any(feature = "cuda", feature = "wgpu"))))]
+    let (eps, devices) = (
+        vec!["BurnNdArray".to_string()],
+        vec!["cpu".to_string()],
     );
 
     EpCapabilities {

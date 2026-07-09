@@ -14,12 +14,12 @@ pad_frames: 6
 
 # Vocoder model (Burn native inference — pure Rust, no ONNX Runtime needed)
 vocoder:
-  model: models/vocoder/vocoder_fused.pt
+  model: models/vocoder/vocoder_fused.bpk
   model_type: burn
 
 # Harmonic-Noise Separation model (Burn native inference — pure Rust, no ONNX Runtime needed)
 hnsep:
-  model: models/hnsep/hnsep_fused.pt
+  model: models/hnsep/hnsep_fused.bpk
 
 # Processing settings
 processing:

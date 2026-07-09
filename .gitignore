@@ -20,6 +20,7 @@ __pycache__/
 *.onnx
 *.pt
 *.ckpt
+*.bpk
 
 # Audio test files
 *.wav

@@ -8,10 +8,10 @@ fmin: 40.0
 fmax: 16000.0
 pad_frames: 6
 vocoder:
-  model: models/vocoder/vocoder_fused.pt
-  model_type: onnx
+  model: models/vocoder/vocoder_fused.bpk
+  model_type: burn
 hnsep:
-  model: models/hnsep/hnsep_fused.pt
+  model: models/hnsep/hnsep_fused.bpk
 processing:
   wave_norm: false
   wave_norm_clip_silence: true

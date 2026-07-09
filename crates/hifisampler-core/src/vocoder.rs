@@ -14,7 +14,11 @@ pub struct Vocoder {
 }
 
 impl Vocoder {
-    /// Load a HiFi-GAN model from a PyTorch checkpoint (fused weights).
+    /// Load a HiFi-GAN model from a Burnpack (.bpk) or PyTorch (.pt) checkpoint.
+    ///
+    /// Format is detected by file extension:
+    /// - `.bpk` → BurnpackStore (Burn native, fast load, recommended)
+    /// - `.pt`  → PytorchStore (legacy, ~20x slower load, kept for backward compat)
     ///
     /// `device` controls the Burn backend — see [`crate::ep::select_burn_device`].
     pub fn load(
@@ -28,8 +32,16 @@ impl Vocoder {
         info!("[vocoder] step 1: loading from {}", path.display());
 
         let burn_device = select_burn_device(device);
-        info!("[vocoder] step 2: device ready, loading PT weights");
-        let model = HifiGanNsf::load_from_pt(path, &burn_device)?;
+        let is_bpk = path.extension().and_then(|e| e.to_str()) == Some("bpk");
+        info!(
+            "[vocoder] step 2: device ready, loading weights (format={})",
+            if is_bpk { "bpk" } else { "pt" }
+        );
+        let model = if is_bpk {
+            HifiGanNsf::load_from_bpk(path, &burn_device)?
+        } else {
+            HifiGanNsf::load_from_pt(path, &burn_device)?
+        };
 
         info!("[vocoder] step 3: vocoder loaded (device={device})");
         Ok(Self { model })

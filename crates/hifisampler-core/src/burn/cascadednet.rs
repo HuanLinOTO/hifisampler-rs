@@ -2,6 +2,7 @@ use burn::config::Config;
 use burn::module::Module;
 use burn::nn::conv::{Conv2d, Conv2dConfig};
 use burn::tensor::{Tensor, backend::Backend};
+use burn_store::{BurnpackStore, ModuleSnapshot, PyTorchToBurnAdapter, PytorchStore, TensorSnapshot};
 
 use super::basetnet::{BaseNet, BaseNetConfig};
 
@@ -195,5 +196,132 @@ impl<B: Backend> CascadedNet<B> {
             }
             f.write_all(&buf).unwrap();
         }
+    }
+
+    /// 从 PyTorch .pt 文件加载权重（key="model"，自动 remap）。
+    ///
+    /// CascadedNet 模块深嵌套（5 BaseNet × 11 子模块，全部固定结构体字段）。
+    /// burn-store 的 `apply()` 会递归遍历每个字段，在 Windows 默认 1MB 栈上
+    /// 会溢出。此外，捕获 175KB 模型的 `move` 闭包会使栈用量翻倍。
+    ///
+    /// 解决方案：Box 模型（只捕获 8 字节），在主线程物化 TensorData（Send），
+    /// 然后在 16MB 栈的工作线程上运行 `apply()`。
+    pub fn load_from_pt(
+        path: impl Into<std::path::PathBuf>,
+        device: &B::Device,
+    ) -> anyhow::Result<Self> {
+        use burn_store::ModuleStore;
+        let path = path.into();
+        let mut model = Box::new(
+            CascadedNetConfig::new(2048, 512, 32, 128, 2).init(device),
+        );
+
+        let mut store = PytorchStore::from_file(&path)
+            .with_top_level_key("model")
+            .allow_partial(false);
+
+        // PytorchStore/TensorSnapshot 是 !Send (内部 Rc<dyn Fn>)，
+        // 在主线程物化数据，跨线程只发送 Send 的 (Vec<String>, TensorData)。
+        let snapshots: Vec<TensorSnapshot> =
+            store.get_all_snapshots()?.values().cloned().collect();
+        let materialized: Vec<(Vec<String>, burn::tensor::TensorData)> = snapshots
+            .iter()
+            .map(|s| {
+                let p = s.path_stack.clone().unwrap_or_default();
+                let data = s.to_data().map_err(|e| {
+                    anyhow::anyhow!("failed to materialize tensor {}: {:?}", p.join("."), e)
+                })?;
+                Ok((p, data))
+            })
+            .collect::<anyhow::Result<_>>()?;
+
+        let result = std::thread::Builder::new()
+            .name("cascadednet-pt-loader".to_string())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(move || -> (Box<CascadedNet<B>>, burn_store::ApplyResult) {
+                let views: Vec<TensorSnapshot> = materialized
+                    .into_iter()
+                    .map(|(p, data)| {
+                        TensorSnapshot::from_data(
+                            data,
+                            p,
+                            Vec::new(),
+                            burn::module::ParamId::new(),
+                        )
+                    })
+                    .collect();
+                let res = model.apply(views, None, Some(Box::new(PyTorchToBurnAdapter)), true);
+                (model, res)
+            })
+            .expect("failed to spawn cascadednet pt load thread")
+            .join()
+            .expect("cascadednet pt load thread panicked");
+        let (model, result) = result;
+
+        if !result.missing.is_empty() {
+            anyhow::bail!(
+                "missing {} tensors (first: {:?})",
+                result.missing.len(),
+                result.missing.first()
+            );
+        }
+        if !result.errors.is_empty() {
+            anyhow::bail!("load errors: {:?}", result.errors);
+        }
+        tracing::info!("loaded {} cascadednet tensors (pt)", result.applied.len());
+        Ok(*model)
+    }
+
+    /// 从 Burnpack (.bpk) 文件加载权重。
+    ///
+    /// BurnpackStore 是 Send，但 CascadedNet 模块结构深嵌套，`apply()` 仍会
+    /// 递归遍历字段，可能在主线程默认 1MB 栈上溢出。所以在 16MB 栈工作线程
+    /// 上运行 `load_from()`。
+    pub fn load_from_bpk(
+        path: impl Into<std::path::PathBuf>,
+        device: &B::Device,
+    ) -> anyhow::Result<Self> {
+        let path = path.into();
+        let mut model = Box::new(
+            CascadedNetConfig::new(2048, 512, 32, 128, 2).init(device),
+        );
+
+        let result = std::thread::Builder::new()
+            .name("cascadednet-bpk-loader".to_string())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(move || -> (Box<CascadedNet<B>>, anyhow::Result<burn_store::ApplyResult>) {
+                let mut store = BurnpackStore::from_file(&path);
+                let res = model.load_from(&mut store);
+                (model, res.map_err(Into::into))
+            })
+            .expect("failed to spawn cascadednet bpk load thread")
+            .join()
+            .expect("cascadednet bpk load thread panicked");
+        let (model, res) = result;
+        let result = res?;
+        if !result.missing.is_empty() {
+            anyhow::bail!(
+                "missing {} tensors (first: {:?})",
+                result.missing.len(),
+                result.missing.first()
+            );
+        }
+        if !result.errors.is_empty() {
+            anyhow::bail!("load errors: {:?}", result.errors);
+        }
+        tracing::info!("loaded {} cascadednet tensors (bpk)", result.applied.len());
+        Ok(*model)
+    }
+
+    /// 保存为 Burnpack (.bpk) 格式。
+    pub fn save_to_bpk(&self, path: impl Into<std::path::PathBuf>) -> anyhow::Result<()> {
+        let path = path.into();
+        let mut store = BurnpackStore::from_file(&path).overwrite(true);
+        self.save_into(&mut store)?;
+        tracing::info!(
+            "saved cascadednet tensors to {} (bpk)",
+            path.display()
+        );
+        Ok(())
     }
 }

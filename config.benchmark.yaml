@@ -12,11 +12,11 @@ fmax: 16000.0
 pad_frames: 6
 
 vocoder:
-  model: models/vocoder/vocoder_fused.pt
+  model: models/vocoder/vocoder_fused.bpk
   model_type: burn
 
 hnsep:
-  model: models/hnsep/hnsep_fused.pt
+  model: models/hnsep/hnsep_fused.bpk
 
 processing:
   wave_norm: false

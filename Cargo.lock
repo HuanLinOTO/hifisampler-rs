@@ -2910,6 +2910,7 @@ dependencies = [
  "base64 0.22.1",
  "burn",
  "burn-store",
+ "clap",
  "hound",
  "ndarray 0.17.2",
  "num-complex",

@@ -7,10 +7,13 @@ on:
     branches: [main]
   release:
     types: [created]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
-  # Burn model files on HuggingFace (individual .pt files, not 7z archive)
+  # Burn model files on HuggingFace (individual .bpk files — Burn native format,
+  # ~20x faster load + ~50% less peak memory vs .pt). Original .pt files are
+  # converted once via the `convert-models` workflow below.
   HF_MODELS_BASE: "https://huggingface.co/SVCFusion/things/resolve/main/hifisampler"
 
 jobs:
@@ -20,41 +23,52 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ── Windows CPU (wgpu/WGSL — no Vulkan SDK needed) ──
+          # ── CPU (NdArray backend — pure CPU, no GPU dependencies) ──
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            platform: windows-x64
-            variant: cpu
+            backend: cpu
             artifact: hifisampler-windows-x64-cpu
-            cargo_features: ""
-          # ── Windows CUDA ──
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            platform: windows-x64
-            variant: cuda
-            artifact: hifisampler-windows-x64-cuda
-            cargo_features: "--features hifisampler-core/cuda --no-default-features"
-          # ── Linux CPU (wgpu/WGSL) ──
+            cargo_features: "--no-default-features --features hifisampler-core/ndarray"
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-            platform: linux-x64
-            variant: cpu
+            backend: cpu
             artifact: hifisampler-linux-x64-cpu
-            cargo_features: ""
-          # ── Linux CUDA ──
-          - os: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            platform: linux-x64
-            variant: cuda
-            artifact: hifisampler-linux-x64-cuda
-            cargo_features: "--features hifisampler-core/cuda --no-default-features"
-          # ── macOS ARM64 (wgpu/WGSL) ──
+            cargo_features: "--no-default-features --features hifisampler-core/ndarray"
           - os: macos-latest
             target: aarch64-apple-darwin
-            platform: macos-arm64
-            variant: cpu
-            artifact: hifisampler-macos-arm64
-            cargo_features: ""
+            backend: cpu
+            artifact: hifisampler-macos-arm64-cpu
+            cargo_features: "--no-default-features --features hifisampler-core/ndarray"
+
+          # ── WebGPU (wgpu backend — Vulkan/Metal/DX12, all GPUs) ──
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            backend: webgpu
+            artifact: hifisampler-windows-x64-webgpu
+            cargo_features: "--no-default-features --features hifisampler-core/wgpu"
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            backend: webgpu
+            artifact: hifisampler-linux-x64-webgpu
+            cargo_features: "--no-default-features --features hifisampler-core/wgpu"
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            backend: webgpu
+            artifact: hifisampler-macos-arm64-webgpu
+            cargo_features: "--no-default-features --features hifisampler-core/wgpu"
+
+          # ── CUDA (NVIDIA only — fastest GPU backend) ──
+          # No macOS CUDA (Apple Silicon doesn't support NVIDIA CUDA).
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            backend: cuda
+            artifact: hifisampler-windows-x64-cuda
+            cargo_features: "--no-default-features --features hifisampler-core/cuda"
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            backend: cuda
+            artifact: hifisampler-linux-x64-cuda
+            cargo_features: "--no-default-features --features hifisampler-core/cuda"
 
     runs-on: ${{ matrix.os }}
     name: Build (${{ matrix.artifact }})
@@ -70,18 +84,18 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}-${{ matrix.variant }}
+          key: ${{ matrix.target }}-${{ matrix.backend }}
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
 
-      # ── Install CUDA Toolkit (CUDA variant only, for packaging runtime DLLs) ──
+      # ── Install CUDA Toolkit (CUDA backend only, for packaging runtime DLLs) ──
       # cudarc uses dynamic loading at build time (no toolkit needed to compile),
       # but the packaged binary needs cublas + nvrtc DLLs at runtime.
       # We install the toolkit here just to copy those DLLs into the dist.
       - name: Install CUDA Toolkit
-        if: matrix.variant == 'cuda'
+        if: matrix.backend == 'cuda'
         uses: Jimver/cuda-toolkit@v0.2.21
         with:
           method: network
@@ -101,15 +115,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p models/vocoder models/hnsep
-          echo "Downloading vocoder_fused.pt..."
-          curl -fSL --retry 3 "$HF_MODELS_BASE/vocoder_fused.pt" -o models/vocoder/vocoder_fused.pt
-          echo "Downloading hnsep_fused.pt..."
-          curl -fSL --retry 3 "$HF_MODELS_BASE/hnsep_fused.pt" -o models/hnsep/hnsep_fused.pt
+          echo "Downloading vocoder_fused.bpk..."
+          curl -fSL --retry 3 "$HF_MODELS_BASE/vocoder_fused.bpk" -o models/vocoder/vocoder_fused.bpk
+          echo "Downloading hnsep_fused.bpk..."
+          curl -fSL --retry 3 "$HF_MODELS_BASE/hnsep_fused.bpk" -o models/hnsep/hnsep_fused.bpk
           ls -lhR models/
 
-      # ── Run unit tests (CPU variants only — no GPU in CI) ──
+      # ── Run unit tests (CPU backend only — CI runners have no GPU) ──
       - name: Run unit tests
-        if: matrix.variant == 'cpu'
+        if: matrix.backend == 'cpu'
         shell: bash
         run: cargo test --release --target ${{ matrix.target }} ${{ matrix.cargo_features }}
 
@@ -134,7 +148,7 @@ jobs:
           if (Test-Path "webui") { Copy-Item -Recurse "webui" "$out/webui" }
           if (Test-Path "models") { Copy-Item -Recurse "models" "$out/models" }
 
-          # CUDA runtime DLLs (CUDA variant only)
+          # CUDA runtime DLLs (CUDA backend only)
           # cudarc uses dynamic loading — only needs these at runtime:
           #   - cublas64_*.dll  (matmul, loaded by cudarc "cublas" feature)
           #   - nvrtc64_*.dll   (kernel JIT compilation, loaded by "nvrtc" feature)
@@ -142,7 +156,7 @@ jobs:
           #   - cublasLt64_*.dll  (cublasLt is an optional cudarc feature, not enabled)
           #   - nvrtc64_*.alt.dll (alternate copy, not loaded)
           # nvcuda.dll comes from the NVIDIA driver, not packaged here.
-          if ("${{ matrix.variant }}" -eq "cuda") {
+          if ("${{ matrix.backend }}" -eq "cuda") {
             $cudaPaths = @(
               "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v*\bin",
               "C:\Program Files\NVIDIA Corporation\CUDA\v*\bin"
@@ -176,7 +190,7 @@ jobs:
           $version = $version -replace '[\\/:*?"<>|]', '-'
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
             /DSourceDir="$sourceDir" `
-            /DVariant="${{ matrix.variant }}" `
+            /DVariant="${{ matrix.backend }}" `
             /DMyAppVersion="$version" `
             installer\setup.iss
 
@@ -201,14 +215,14 @@ jobs:
           [ -d webui ] && cp -r webui "$out/webui"
           [ -d models ] && cp -r models "$out/models"
 
-          # CUDA runtime shared libs (CUDA variant only)
+          # CUDA runtime shared libs (CUDA backend only)
           # cudarc uses dynamic loading — only needs these at runtime:
           #   - libcublas.so*  (matmul, loaded by cudarc "cublas" feature)
           #   - libnvrtc.so*   (kernel JIT compilation, loaded by "nvrtc" feature)
           # NOT needed (not loaded by cubecl-cuda's cudarc features):
           #   - libcublasLt.so*  (cublasLt is an optional cudarc feature, not enabled)
           # libcuda.so comes from the NVIDIA driver, not packaged here.
-          if [ "${{ matrix.variant }}" = "cuda" ]; then
+          if [ "${{ matrix.backend }}" = "cuda" ]; then
             cuda_lib_paths=""
             for dir in /usr/local/cuda*/lib64 /usr/lib/cuda/lib64; do
               if [ -d "$dir" ]; then
@@ -288,3 +302,78 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release_assets/*
+
+  # ────────────────────────── Convert + Upload Models ──────────────────────────
+  # One-time / on-demand: downloads source .pt files from HuggingFace, converts
+  # them to Burn's native Burnpack (.bpk) format, and uploads the .bpk files
+  # back to HuggingFace. Triggered manually via workflow_dispatch, or on push to
+  # main. Uses the NdArray (CPU) backend so it runs on any CI runner without GPU.
+  convert-models:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    env:
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: convert-models-x86_64-pc-windows-msvc
+
+      - name: Install HF CLI
+        run: pip install huggingface-hub
+
+      - name: Download source .pt files from HuggingFace
+        shell: bash
+        run: |
+          mkdir -p models/vocoder models/hnsep
+          echo "Downloading source vocoder_fused.pt..."
+          curl -fSL --retry 3 "$HF_MODELS_BASE/vocoder_fused.pt" -o models/vocoder/vocoder_fused.pt
+          echo "Downloading source hnsep_fused.pt..."
+          curl -fSL --retry 3 "$HF_MODELS_BASE/hnsep_fused.pt" -o models/hnsep/hnsep_fused.pt
+          ls -lhR models/
+
+      # Build converter with NdArray backend — no GPU needed for weight conversion.
+      - name: Build converter
+        shell: bash
+        run: cargo build --release --bin convert_models --no-default-features --features hifisampler-core/ndarray
+
+      - name: Convert .pt → .bpk
+        shell: bash
+        run: |
+          ./target/release/convert_models.exe \
+            --all \
+            models/vocoder/vocoder_fused.pt models/vocoder/vocoder_fused.bpk \
+            models/hnsep/hnsep_fused.pt models/hnsep/hnsep_fused.bpk
+          ls -lh models/vocoder/*.bpk models/hnsep/*.bpk
+
+      - name: Upload .bpk files to HuggingFace
+        shell: bash
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::warning::HF_TOKEN secret is not set — skipping upload. .bpk files are still built as artifacts."
+            exit 0
+          fi
+          hf upload SVCFusion/things models/vocoder/vocoder_fused.bpk hifisampler/vocoder_fused.bpk \
+            --repo-type model --commit-message "Update vocoder_fused.bpk (Burn native format)"
+          hf upload SVCFusion/things models/hnsep/hnsep_fused.bpk hifisampler/hnsep_fused.bpk \
+            --repo-type model --commit-message "Update hnsep_fused.bpk (Burn native format)"
+
+      - name: Upload .bpk artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bpk-models
+          path: |
+            models/vocoder/*.bpk
+            models/hnsep/*.bpk

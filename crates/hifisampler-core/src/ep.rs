@@ -35,7 +35,35 @@ pub type VocoderBackend = Wgpu;
 pub fn select_burn_device(device: &str) -> burn::tensor::Device<VocoderBackend> {
     let device_lower = device.to_lowercase();
     info!("[ep] select_burn_device: creating device (requested={})", device_lower);
-    let dev: burn::tensor::Device<VocoderBackend> = Default::default();
+
+    let dev: burn::tensor::Device<VocoderBackend> = match device_lower.as_str() {
+        "cpu" => {
+            #[cfg(feature = "cuda")]
+            {
+                // CUDA backend doesn't have a CPU-only device; use device 0 as fallback.
+                info!("[ep] CUDA backend does not support CPU-only mode, using CUDA device 0");
+                burn::backend::cuda::CudaDevice::new(0).into()
+            }
+            #[cfg(all(feature = "wgpu", not(feature = "cuda")))]
+            {
+                info!("[ep] selecting CPU device");
+                burn::backend::wgpu::WgpuDevice::Cpu.into()
+            }
+        }
+        _ => {
+            // auto, vulkan, cuda, directml, dml, coreml, tensorrt → best available
+            info!("[ep] selecting best available GPU device");
+            #[cfg(feature = "cuda")]
+            {
+                burn::backend::cuda::CudaDevice::new(0).into()
+            }
+            #[cfg(all(feature = "wgpu", not(feature = "cuda")))]
+            {
+                burn::backend::wgpu::WgpuDevice::BestAvailable.into()
+            }
+        }
+    };
+
     info!("[ep] device created successfully");
     dev
 }
@@ -50,16 +78,18 @@ pub struct EpCapabilities {
 /// Detect available Burn backend capabilities.
 pub fn detect_ep_capabilities() -> EpCapabilities {
     #[cfg(feature = "cuda")]
-    let eps = vec!["BurnCuda".to_string()];
+    let (eps, devices) = (
+        vec!["BurnCuda".to_string()],
+        vec!["auto".to_string(), "cuda".to_string()],
+    );
     #[cfg(all(feature = "wgpu", not(feature = "cuda")))]
-    let eps = vec!["BurnWgpu".to_string()];
+    let (eps, devices) = (
+        vec!["BurnWgpu".to_string()],
+        vec!["auto".to_string(), "cpu".to_string(), "vulkan".to_string()],
+    );
 
     EpCapabilities {
-        available_devices: vec![
-            "auto".to_string(),
-            "cpu".to_string(),
-            "vulkan".to_string(),
-        ],
+        available_devices: devices,
         available_eps_raw: eps,
     }
 }

@@ -4,7 +4,7 @@ use burn::nn::conv::{Conv1d, Conv1dConfig, ConvTranspose1d, ConvTranspose1dConfi
 use burn::nn::PaddingConfig1d;
 use burn::tensor::activation::leaky_relu;
 use burn::tensor::{Tensor, backend::Backend};
-use burn_store::{BurnpackStore, ModuleSnapshot, PytorchStore};
+use burn_store::{BurnpackStore, ModuleSnapshot, ModuleStore, PytorchStore, TensorSnapshot};
 
 use super::fastsinegen::fastsinegen;
 use super::resblock::ResBlock1;
@@ -159,12 +159,14 @@ impl<B: Backend> HifiGanNsf<B> {
 
     /// 从 Burnpack (.bpk) 文件加载权重。
     ///
-    /// 与 `load_from_pt` 相比：无需 PyTorchToBurnAdapter，无需 dtype 转换，
-    /// 内存映射 + lazy load，加载速度约 20x。
+    /// 与 `load_from_pt` 相比：无需 PyTorchToBurnAdapter，内存映射 + lazy load。
+    /// 当后端 float elem 与 .bpk 存储 dtype 不一致时（如 f16 backend 加载 f32 权重），
+    /// 手动转换 dtype（burn-store 的 load_from 不自动转换）。
     pub fn load_from_bpk(
         path: impl Into<std::path::PathBuf>,
         device: &B::Device,
     ) -> anyhow::Result<Self> {
+        use burn::tensor::Element;
         let path = path.into();
         let mut model = HifiGanNsfConfig::new(
             128,
@@ -178,7 +180,34 @@ impl<B: Backend> HifiGanNsf<B> {
         .init(device);
 
         let mut store = BurnpackStore::from_file(path);
-        let result = model.load_from(&mut store)?;
+
+        let target_dtype = <B::FloatElem as Element>::dtype();
+        let snapshots: Vec<TensorSnapshot> = match store.get_all_snapshots() {
+            Ok(s) => s.values().cloned().collect(),
+            Err(e) => anyhow::bail!("vocoder bpk get_all_snapshots: {:?}", e),
+        };
+        let materialized: Vec<(Vec<String>, burn::tensor::TensorData)> = snapshots
+            .iter()
+            .map(|s| {
+                let p = s.path_stack.clone().unwrap_or_default();
+                let data = s.to_data().map_err(|e| {
+                    anyhow::anyhow!("failed to materialize tensor {}: {:?}", p.join("."), e)
+                })?;
+                let data = if data.dtype != target_dtype {
+                    data.convert_dtype(target_dtype)
+                } else {
+                    data
+                };
+                Ok((p, data))
+            })
+            .collect::<anyhow::Result<_>>()?;
+        let views: Vec<TensorSnapshot> = materialized
+            .into_iter()
+            .map(|(p, data)| {
+                TensorSnapshot::from_data(data, p, Vec::new(), burn::module::ParamId::new())
+            })
+            .collect();
+        let result = model.apply(views, None, None, true);
         if !result.missing.is_empty() {
             anyhow::bail!("missing tensors: {:?}", result.missing);
         }

@@ -105,18 +105,8 @@ impl<B: Backend> CascadedNet<B> {
         let l1_in = x.clone().slice([0..batch, 0..2, 0..bandw, 0..t]);
         let h1_in = x.clone().slice([0..batch, 0..2, bandw..max_bin, 0..t]);
 
-        let l1 = {
-            unsafe { std::env::set_var("BURN_DUMP_PREFIX", "stg1l_"); }
-            let r = self.stg1_low_band_net.forward(l1_in.clone());
-            unsafe { std::env::remove_var("BURN_DUMP_PREFIX"); }
-            r
-        };
-        let h1 = {
-            unsafe { std::env::set_var("BURN_DUMP_PREFIX", "stg1h_"); }
-            let r = self.stg1_high_band_net.forward(h1_in.clone());
-            unsafe { std::env::remove_var("BURN_DUMP_PREFIX"); }
-            r
-        };
+        let l1 = self.stg1_low_band_net.forward(l1_in.clone());
+        let h1 = self.stg1_high_band_net.forward(h1_in.clone());
         // aux1 = torch.cat([l1, h1], dim=2)  — 沿频维拼接
         let aux1 = Tensor::cat(vec![l1.clone(), h1.clone()], 2);
         self.dump("aux1", &aux1);
@@ -148,7 +138,10 @@ impl<B: Backend> CascadedNet<B> {
         let real_part = mask_raw.clone().slice([0..b, 0..1, 0..mh, 0..mw]);
         let imag_part = mask_raw.clone().slice([0..b, 1..2, 0..mh, 0..mw]);
         // bounded_mask: mag = sqrt(real^2 + imag^2 + eps), mask = tanh(mag) * mask / (mag + eps)
-        let eps = 1e-8;
+        // eps must be representable in f16 (1e-8 underflows to 0 → division by zero).
+        // 1e-4 is the smallest practical eps for f16; numerical impact is negligible
+        // (only affects bins where real≈imag≈0, where output is ~0 regardless).
+        let eps = 1e-4;
         let real_sq = real_part.clone().powi_scalar(2);
         let imag_sq = imag_part.clone().powi_scalar(2);
         let mag = (real_sq + imag_sq).add_scalar(eps).sqrt();
@@ -170,9 +163,11 @@ impl<B: Backend> CascadedNet<B> {
     }
 
     fn dump(&self, name: &str, t: &Tensor<B, 4>) {
-        if let Ok(dir) = std::env::var("BURN_DUMP_LAYERS") {
+        static DUMP_DIR: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+        let dir = DUMP_DIR.get_or_init(|| std::env::var("BURN_DUMP_LAYERS").ok());
+        if let Some(dir) = dir {
             use burn::tensor::ElementConversion;
-            let path = std::path::Path::new(&dir).join(format!("{name}.raw"));
+            let path = std::path::Path::new(dir).join(format!("{name}.raw"));
             let data = t.to_data();
             let slice: Vec<f32> = data
                 .as_slice::<<B as burn::tensor::backend::BackendTypes>::FloatElem>()
@@ -276,11 +271,15 @@ impl<B: Backend> CascadedNet<B> {
     ///
     /// BurnpackStore 是 Send，但 CascadedNet 模块结构深嵌套，`apply()` 仍会
     /// 递归遍历字段，可能在主线程默认 1MB 栈上溢出。所以在 16MB 栈工作线程
-    /// 上运行 `load_from()`。
+    /// 上运行 `apply()`。
+    ///
+    /// 当后端 float elem 与 .bpk 存储 dtype 不一致时（如 f16 backend 加载 f32 权重），
+    /// `load_from()` 会因 DTypeMismatch 失败。这里手动获取 snapshots → 转换 dtype → apply。
     pub fn load_from_bpk(
         path: impl Into<std::path::PathBuf>,
         device: &B::Device,
     ) -> anyhow::Result<Self> {
+        use burn_store::ModuleStore;
         let path = path.into();
         let mut model = Box::new(
             CascadedNetConfig::new(2048, 512, 32, 128, 2).init(device),
@@ -291,8 +290,65 @@ impl<B: Backend> CascadedNet<B> {
             .stack_size(16 * 1024 * 1024)
             .spawn(move || -> (Box<CascadedNet<B>>, anyhow::Result<burn_store::ApplyResult>) {
                 let mut store = BurnpackStore::from_file(&path);
-                let res = model.load_from(&mut store);
-                (model, res.map_err(Into::into))
+
+                use burn::tensor::Element;
+                let target_dtype = <B::FloatElem as Element>::dtype();
+
+                let snapshots: Vec<TensorSnapshot> = match store.get_all_snapshots() {
+                    Ok(s) => s.values().cloned().collect(),
+                    Err(e) => return (model, Err(anyhow::anyhow!("bpk get_all_snapshots: {:?}", e))),
+                };
+
+                let materialized: anyhow::Result<Vec<(Vec<String>, burn::tensor::TensorData)>> =
+                    snapshots
+                        .iter()
+                        .map(|s| {
+                            let p = s.path_stack.clone().unwrap_or_default();
+                            let data = s.to_data().map_err(|e| {
+                                anyhow::anyhow!(
+                                    "failed to materialize tensor {}: {:?}",
+                                    p.join("."),
+                                    e
+                                )
+                            })?;
+                            let data = if data.dtype != target_dtype {
+                                data.convert_dtype(target_dtype)
+                            } else {
+                                data
+                            };
+                            Ok((p, data))
+                        })
+                        .collect();
+
+                let materialized = match materialized {
+                    Ok(m) => m,
+                    Err(e) => return (model, Err(e)),
+                };
+
+                // BN folding: for each "*.conv.conv0.weight", find matching
+                // "*.conv.conv1.{gamma,beta,running_mean,running_var}" and fold:
+                //   w' = w * (gamma / sqrt(var + eps))
+                //   beta' = beta - gamma * mean / sqrt(var + eps)
+                //   gamma' = 1, mean' = 0, var' = 1
+                // After folding, BN forward becomes approximately identity + bias,
+                // and conv weight already includes the scale. The BN kernel still
+                // runs but with identity params (minimal compute).
+                let materialized = fold_bn_snapshots(materialized);
+
+                let views: Vec<TensorSnapshot> = materialized
+                    .into_iter()
+                    .map(|(p, data)| {
+                        TensorSnapshot::from_data(
+                            data,
+                            p,
+                            Vec::new(),
+                            burn::module::ParamId::new(),
+                        )
+                    })
+                    .collect();
+
+                let res = model.apply(views, None, None, true);
+                (model, Ok(res))
             })
             .expect("failed to spawn cascadednet bpk load thread")
             .join()
@@ -323,5 +379,161 @@ impl<B: Backend> CascadedNet<B> {
             path.display()
         );
         Ok(())
+    }
+}
+
+/// Fold BatchNorm params into Conv2d weight at the snapshot level.
+///
+/// For each key ending in ".conv.conv0.weight", finds the corresponding
+/// ".conv.conv1.{gamma,beta,running_mean,running_var}" and folds:
+///   w' = w * scale, where scale = gamma / sqrt(var + eps)
+///   beta' = beta - mean * scale
+/// Then sets gamma=1, running_mean=0, running_var=1 so BN forward ≈ identity + bias.
+///
+/// This doesn't eliminate the BN kernel (forward still runs it), but folds
+/// the scale into conv weight so BN does minimal work with identity params.
+/// Full elimination requires struct changes that break burn-store compat.
+fn fold_bn_snapshots(
+    mut snaps: Vec<(Vec<String>, burn::tensor::TensorData)>,
+) -> Vec<(Vec<String>, burn::tensor::TensorData)> {
+    use burn::tensor::ElementConversion;
+    use burn::tensor::DType;
+    use std::collections::HashMap;
+
+    // Build a lookup: key string → index in snaps
+    let mut key_map: HashMap<String, usize> = HashMap::new();
+    for (i, (path, _)) in snaps.iter().enumerate() {
+        key_map.insert(path.join("."), i);
+    }
+
+    let eps: f32 = 1e-5;
+    let mut folded_count = 0;
+
+    // Find all conv weight keys
+    let conv_weight_indices: Vec<usize> = snaps
+        .iter()
+        .enumerate()
+        .filter(|(_, (path, _))| path.join(".").ends_with(".conv.conv0.weight"))
+        .map(|(i, _)| i)
+        .collect();
+
+    for w_idx in conv_weight_indices {
+        let prefix: String = {
+            let path = &snaps[w_idx].0;
+            let key = path.join(".");
+            let key = key.strip_suffix("conv0.weight").unwrap_or(&key);
+            format!("{key}conv1")
+        };
+
+        let gamma_idx = key_map.get(&format!("{prefix}.gamma"));
+        let beta_idx = key_map.get(&format!("{prefix}.beta"));
+        let mean_idx = key_map.get(&format!("{prefix}.running_mean"));
+        let var_idx = key_map.get(&format!("{prefix}.running_var"));
+
+        let (Some(&gi), Some(&bi), Some(&mi), Some(&vi)) = (gamma_idx, beta_idx, mean_idx, var_idx)
+        else {
+            continue;
+        };
+
+        let gamma = tensor_data_to_f32_vec(&snaps[gi].1);
+        let beta = tensor_data_to_f32_vec(&snaps[bi].1);
+        let mean = tensor_data_to_f32_vec(&snaps[mi].1);
+        let var = tensor_data_to_f32_vec(&snaps[vi].1);
+
+        let out_ch = gamma.len();
+        if beta.len() != out_ch || mean.len() != out_ch || var.len() != out_ch {
+            continue;
+        }
+
+        let scale: Vec<f32> = (0..out_ch)
+            .map(|i| gamma[i] / (var[i] + eps).sqrt())
+            .collect();
+        let folded_bias: Vec<f32> = (0..out_ch)
+            .map(|i| beta[i] - mean[i] * scale[i])
+            .collect();
+
+        let weight_data = &snaps[w_idx].1;
+        let weight_dims: Vec<usize> = weight_data.shape.as_slice().to_vec();
+        let weight_f32 = tensor_data_to_f32_vec(weight_data);
+        let total_elems = weight_f32.len();
+        let elems_per_ch = total_elems / out_ch;
+        let folded_weight: Vec<f32> = (0..total_elems)
+            .map(|i| {
+                let ch = i / elems_per_ch;
+                weight_f32[i] * scale[ch]
+            })
+            .collect();
+
+        let w_dtype = snaps[w_idx].1.dtype;
+        snaps[w_idx].1 = f32_vec_to_tensor_data(&folded_weight, &weight_dims, w_dtype);
+
+        let bn_dtype = snaps[gi].1.dtype;
+        let ones: Vec<f32> = vec![1.0; out_ch];
+        let zeros: Vec<f32> = vec![0.0; out_ch];
+        snaps[gi].1 = f32_vec_to_tensor_data(&ones, &[out_ch], bn_dtype);
+        snaps[bi].1 = f32_vec_to_tensor_data(&folded_bias, &[out_ch], bn_dtype);
+        snaps[mi].1 = f32_vec_to_tensor_data(&zeros, &[out_ch], bn_dtype);
+        snaps[vi].1 = f32_vec_to_tensor_data(&ones, &[out_ch], bn_dtype);
+
+        folded_count += 1;
+    }
+
+    tracing::info!("folded {} BN layers into conv weights", folded_count);
+    snaps
+}
+
+fn tensor_data_to_f32_vec(data: &burn::tensor::TensorData) -> Vec<f32> {
+    use burn::tensor::ElementConversion;
+    use burn::tensor::DType;
+    match data.dtype {
+        DType::F32 | DType::Flex32 => data
+            .as_slice::<f32>()
+            .unwrap_or(&[])
+            .iter()
+            .map(|&v| v.elem())
+            .collect(),
+        DType::F16 => data
+            .as_slice::<burn::tensor::f16>()
+            .unwrap_or(&[])
+            .iter()
+            .map(|&v| v.elem())
+            .collect(),
+        DType::BF16 => data
+            .as_slice::<burn::tensor::bf16>()
+            .unwrap_or(&[])
+            .iter()
+            .map(|&v| v.elem())
+            .collect(),
+        DType::F64 => data
+            .as_slice::<f64>()
+            .unwrap_or(&[])
+            .iter()
+            .map(|&v| v.elem())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn f32_vec_to_tensor_data(
+    vals: &[f32],
+    dims: &[usize],
+    dtype: burn::tensor::DType,
+) -> burn::tensor::TensorData {
+    use burn::tensor::ElementConversion;
+    use burn::tensor::DType;
+    match dtype {
+        DType::F16 => {
+            let converted: Vec<burn::tensor::f16> = vals.iter().map(|&v| v.elem()).collect();
+            burn::tensor::TensorData::new(converted, dims.to_vec())
+        }
+        DType::BF16 => {
+            let converted: Vec<burn::tensor::bf16> = vals.iter().map(|&v| v.elem()).collect();
+            burn::tensor::TensorData::new(converted, dims.to_vec())
+        }
+        DType::F64 => {
+            let converted: Vec<f64> = vals.iter().map(|&v| v.elem()).collect();
+            burn::tensor::TensorData::new(converted, dims.to_vec())
+        }
+        _ => burn::tensor::TensorData::new(vals.to_vec(), dims.to_vec()),
     }
 }

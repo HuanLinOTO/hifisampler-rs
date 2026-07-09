@@ -9,11 +9,11 @@ use std::path::Path;
 use tracing::info;
 
 use crate::burn::cascadednet::CascadedNet;
-use crate::ep::{select_burn_device, VocoderBackend};
+use crate::ep::{HnsepBackend, select_burn_device};
 
 /// HN-SEP model using Burn.
 pub struct HnsepModel {
-    model: Option<CascadedNet<VocoderBackend>>,
+    model: Option<CascadedNet<HnsepBackend>>,
     n_fft: usize,
     hop_length: usize,
 }
@@ -68,7 +68,7 @@ impl HnsepModel {
     }
 
     fn predict_inner(
-        model: &mut CascadedNet<VocoderBackend>,
+        model: &mut CascadedNet<HnsepBackend>,
         audio: &[f32],
         n_fft: usize,
         hop_length: usize,
@@ -82,14 +82,17 @@ impl HnsepModel {
         let n_frames = stft_frames.len();
         info!("[hnsep] predict: STFT done, n_frames={}", n_frames);
 
-        // Pad time frames to be divisible by 16 (for U-Net)
-        let pad_frames = ((n_frames + 15) / 16) * 16;
+        // Pad time frames to a 64-step bucket to reduce shape diversity.
+        // Fewer unique shapes → better kernel cache hit + autotune coverage.
+        let pad_frames = ((n_frames + 63) / 64) * 64;
         info!("[hnsep] predict: pad_frames={}", pad_frames);
 
         let max_bin = n_fft / 2;
-        let device = burn::tensor::Device::<VocoderBackend>::default();
+        let device = burn::tensor::Device::<HnsepBackend>::default();
 
         // Build Burn input: [1, 2, max_bin, pad_frames] (real, imag)
+        // Convert to backend's float dtype (f32→f16 for CUDA f16 backend) so
+        // input dtype matches model weight dtype (avoids DTypeMismatch in Conv2d).
         let mut input_data = vec![0.0f32; 1 * 2 * max_bin * pad_frames];
         for t in 0..n_frames {
             for f in 0..freq_bins.min(max_bin).min(stft_frames[t].len()) {
@@ -100,19 +103,29 @@ impl HnsepModel {
             }
         }
 
-        let input_tensor = burn::tensor::Tensor::<VocoderBackend, 4>::from_data(
-            burn::tensor::TensorData::new(input_data, [1, 2, max_bin, pad_frames]),
-            &device,
-        );
+        let tensor_data =
+            burn::tensor::TensorData::new(input_data, [1, 2, max_bin, pad_frames]);
+        // Convert input data to backend's float dtype (f32→f16 for CUDA f16 backend)
+        // so input dtype matches model weight dtype (avoids DTypeMismatch in Conv2d).
+        #[cfg(feature = "cuda")]
+        let target_dtype = burn::tensor::DType::F16;
+        #[cfg(not(feature = "cuda"))]
+        let target_dtype = burn::tensor::DType::F32;
+        let tensor_data = tensor_data.convert_dtype(target_dtype);
+        let input_tensor =
+            burn::tensor::Tensor::<HnsepBackend, 4>::from_data(tensor_data, &device);
         info!("[hnsep] predict: input tensor created, calling model.forward");
 
         // Run inference → mask [1, 2, output_bin, pad_frames]
         let mask_tensor = model.forward(input_tensor);
         info!("[hnsep] predict: forward done, extracting data");
 
+        // Slice off pad frames on GPU before CPU extraction (reduces transfer size)
+        let output_bin = freq_bins;
+        let mask_tensor = mask_tensor.slice([0..1, 0..2, 0..output_bin, 0..n_frames]);
         let mask_data = mask_tensor.into_data();
         let mask_slice: Vec<f32> = mask_data
-            .as_slice::<<VocoderBackend as burn::tensor::backend::BackendTypes>::FloatElem>()
+            .as_slice::<<HnsepBackend as burn::tensor::backend::BackendTypes>::FloatElem>()
             .unwrap_or(&[])
             .iter()
             .map(|&v| {
@@ -122,14 +135,13 @@ impl HnsepModel {
             .collect();
 
         // Apply mask to STFT
-        let output_bin = freq_bins;
+        // mask_slice layout: [1, 2, output_bin, n_frames] (pad already sliced off)
         let mut masked_frames: Vec<Vec<Complex<f32>>> = Vec::with_capacity(n_frames);
         for t in 0..n_frames {
             let mut frame = Vec::with_capacity(freq_bins);
             for f in 0..freq_bins {
-                // mask_slice layout: [1, 2, output_bin, pad_frames]
-                let mask_re = mask_slice[f * pad_frames + t];
-                let mask_im = mask_slice[output_bin * pad_frames + f * pad_frames + t];
+                let mask_re = mask_slice[f * n_frames + t];
+                let mask_im = mask_slice[output_bin * n_frames + f * n_frames + t];
                 let mask_val = Complex::new(mask_re, mask_im);
                 let spec = stft_frames[t][f];
                 frame.push(spec * mask_val);

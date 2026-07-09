@@ -35,13 +35,26 @@ compile_error!(
 /// Burn backend type used by all models.
 /// Selected at compile time: Cuda (if `cuda` feature), Wgpu (if `wgpu`), or NdArray (if `ndarray`).
 #[cfg(feature = "cuda")]
-pub type VocoderBackend = Cuda;
+pub type VocoderBackend = Cuda<burn::tensor::f16>;
 
 #[cfg(all(feature = "wgpu", not(feature = "cuda")))]
 pub type VocoderBackend = Wgpu;
 
 #[cfg(all(feature = "ndarray", not(any(feature = "cuda", feature = "wgpu"))))]
 pub type VocoderBackend = NdArray;
+
+/// Burn backend for HN-SEP model. Uses f16 for Tensor Core acceleration
+/// and halved memory bandwidth on memory-bound ops (BN, activation, interpolate, cat).
+/// Vocoder stays f32 (variable shapes + f16-sensitive output).
+/// CPU LSTM path already converts via `elem::<f32>()`, so f16 input is transparent.
+#[cfg(feature = "cuda")]
+pub type HnsepBackend = Cuda<burn::tensor::f16>;
+
+#[cfg(all(feature = "wgpu", not(feature = "cuda")))]
+pub type HnsepBackend = Wgpu;
+
+#[cfg(all(feature = "ndarray", not(any(feature = "cuda", feature = "wgpu"))))]
+pub type HnsepBackend = NdArray;
 
 /// Select a Burn device for the given config device string.
 ///

@@ -74,9 +74,14 @@ impl<B: Backend> ManualBiLstm<B> {
     /// 默认走 CPU (ndarray) 路径以避免 GPU 逐时间步同步开销。
     /// 设置环境变量 `HIFISAMPLER_LSTM_BACKEND=gpu` 可切回 GPU 路径（用于对比/调试）。
     pub fn forward(&self, x: Tensor<B, 3>) -> Tensor<B, 3> {
-        match std::env::var("HIFISAMPLER_LSTM_BACKEND").as_deref() {
-            Ok("gpu") => self.forward_gpu(x),
-            _ => self.forward_cpu(x),
+        static USE_GPU: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let use_gpu = *USE_GPU.get_or_init(|| {
+            std::env::var("HIFISAMPLER_LSTM_BACKEND").as_deref() == Ok("gpu")
+        });
+        if use_gpu {
+            self.forward_gpu(x)
+        } else {
+            self.forward_cpu(x)
         }
     }
 

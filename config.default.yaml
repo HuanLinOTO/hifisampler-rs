@@ -36,7 +36,7 @@ processing:
 # Performance settings
 performance:
   num_threads: 2
-  # Device: auto, cpu, vulkan (Burn vocoder), or cuda/tensorrt/directml/coreml (HN-SEP ORT)
+  # Device: auto, cpu, vulkan (Burn wgpu backend), or cuda (Burn CUDA backend)
   device: auto
   # GPU adapter index (0-based)
   device_id: 0
